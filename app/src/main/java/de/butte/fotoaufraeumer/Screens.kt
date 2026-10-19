@@ -176,7 +176,7 @@ fun ScanScreen(vm: AppVM) {
                     )
                     1 -> Column {
                         Spacer(Modifier.height(6.dp))
-                        LevelChips(vm.simLevel, listOf("Streng", "Normal", "Locker"), "Ähnlichkeit:") { vm.setSimLevel(it) }
+                        LevelChips(vm.simLevel, listOf("Streng", "Normal", "Locker"), "Ähnlichkeit:") { vm.changeSimLevel(it) }
                         GroupList(
                             vm = vm,
                             groups = vm.simGroups,
@@ -187,7 +187,7 @@ fun ScanScreen(vm: AppVM) {
                     }
                     else -> Column {
                         Spacer(Modifier.height(6.dp))
-                        LevelChips(vm.blurLevel, listOf("Streng", "Normal", "Locker"), "Unschärfe:") { vm.setBlurLevel(it) }
+                        LevelChips(vm.blurLevel, listOf("Streng", "Normal", "Locker"), "Unschärfe:") { vm.changeBlurLevel(it) }
                         QualityGrid(vm) { preview = it }
                     }
                 }

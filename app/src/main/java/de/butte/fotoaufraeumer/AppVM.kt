@@ -211,12 +211,12 @@ class AppVM(app: Application) : AndroidViewModel(app) {
         quality = withContext(Dispatchers.Default) { Grouper.quality(p, f, lim) }
     }
 
-    fun setSimLevel(l: Int) {
+    fun changeSimLevel(l: Int) {
         simLevel = l
         viewModelScope.launch { recomputeSimilar() }
     }
 
-    fun setBlurLevel(l: Int) {
+    fun changeBlurLevel(l: Int) {
         blurLevel = l
         viewModelScope.launch { recomputeQuality() }
     }
