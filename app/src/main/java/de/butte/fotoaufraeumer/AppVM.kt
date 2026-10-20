@@ -4,6 +4,7 @@ import android.app.Application
 import android.app.PendingIntent
 import android.content.Context
 import android.content.IntentSender
+import android.graphics.Bitmap
 import android.os.Build
 import android.provider.MediaStore
 import androidx.compose.runtime.getValue
@@ -35,6 +36,7 @@ sealed interface Screen {
     data object Settings : Screen
     data class Enhance(val photo: Photo) : Screen
     data object Vault : Screen
+    data class Erase(val photo: Photo) : Screen
 }
 
 class IntentReq(val sender: IntentSender, val result: CompletableDeferred<Boolean>)
@@ -426,6 +428,38 @@ class AppVM(app: Application) : AndroidViewModel(app) {
             } else {
                 savedFor = p.id
                 message = "Als Kopie gespeichert (…_verbessert.jpg)"
+                photos = withContext(Dispatchers.IO) { MediaRepo.loadAll(ctx) }
+            }
+        }
+    }
+
+    /** Schrift in voller Größe entfernen und als Kopie speichern. overlay = Maske in Vorschaugröße. */
+    fun saveErased(p: Photo, overlay: Bitmap) {
+        if (saving) return
+        saving = true
+        viewModelScope.launch {
+            val uri = withContext(Dispatchers.Default) {
+                try {
+                    val full = Enhancer.decode(ctx, p.uri, 4096)
+                    val big = Bitmap.createScaledBitmap(overlay, full.width, full.height, true)
+                    overlay.recycle()
+                    val mask = overlayToMask(big)
+                    big.recycle()
+                    val out = TextEraser.inpaint(full, mask)
+                    full.recycle()
+                    val u = MediaRepo.saveCopy(ctx, out, p, "_ohneText")
+                    out.recycle()
+                    u
+                } catch (e: Throwable) {
+                    null
+                }
+            }
+            saving = false
+            if (uri == null) {
+                message = "Speichern fehlgeschlagen"
+            } else {
+                savedFor = p.id
+                message = "Als Kopie gespeichert (…_ohneText.jpg)"
                 photos = withContext(Dispatchers.IO) { MediaRepo.loadAll(ctx) }
             }
         }

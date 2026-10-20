@@ -826,6 +826,9 @@ fun EnhanceScreen(vm: AppVM, photo: Photo) {
                     }
                     OutlinedButton(onClick = { adj = Adjust() }) { Text("Zurücksetzen") }
                 }
+                OutlinedButton(onClick = { vm.go(Screen.Erase(photo)) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("🅰 Schrift entfernen (Datum, Wasserzeichen …)")
+                }
                 Slide("Helligkeit", adj.brightness, -1f..1f) { adj = adj.copy(brightness = it) }
                 Slide("Kontrast", adj.contrast, -1f..1f) { adj = adj.copy(contrast = it) }
                 Slide("Farbkraft", adj.saturation, -1f..1f) { adj = adj.copy(saturation = it) }

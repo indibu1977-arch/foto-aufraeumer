@@ -120,9 +120,9 @@ object MediaRepo {
     }
 
     /** Speichert das Bild als Kopie neben dem Original. */
-    fun saveCopy(ctx: Context, bmp: Bitmap, original: Photo): Uri? {
+    fun saveCopy(ctx: Context, bmp: Bitmap, original: Photo, suffix: String = "_verbessert"): Uri? {
         val base = original.name.substringBeforeLast('.').ifBlank { "Foto" }
-        val name = "${base}_verbessert.jpg"
+        val name = "$base$suffix.jpg"
         val first = original.relPath.ifBlank { "Pictures/" }
         return insertJpeg(ctx, bmp, name, first, original.dateTaken)
             ?: insertJpeg(ctx, bmp, name, "Pictures/Verbessert/", original.dateTaken)
