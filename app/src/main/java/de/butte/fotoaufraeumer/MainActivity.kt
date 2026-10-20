@@ -39,6 +39,11 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         vm.onResume()
     }
+
+    override fun onStop() {
+        super.onStop()
+        if (!isChangingConfigurations && vm.intentReq == null) vm.lockVault()
+    }
 }
 
 @Composable
@@ -107,6 +112,7 @@ fun App(vm: AppVM) {
                         Screen.Swipe -> SwipeScreen(vm)
                         Screen.Settings -> SettingsScreen(vm)
                         is Screen.Enhance -> EnhanceScreen(vm, s.photo)
+                        Screen.Vault -> VaultScreen(vm)
                     }
                 }
                 SnackbarHost(

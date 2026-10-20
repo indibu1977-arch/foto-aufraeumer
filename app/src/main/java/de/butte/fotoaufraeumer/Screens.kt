@@ -83,6 +83,9 @@ fun HomeScreen(vm: AppVM) {
             BigCard("👆  Wisch-Sortierer", "Foto für Foto: nach unten löschen, sonst in Ordner einsortieren") {
                 vm.go(Screen.SwipePick)
             }
+            BigCard("🔒  Privater Ordner", "Fotos, die nur du in dieser App siehst – mit PIN geschützt") {
+                vm.go(Screen.Vault)
+            }
             BigCard(
                 "⚙️  Wischrichtungen",
                 listOf(Dir.LEFT, Dir.UP, Dir.RIGHT, Dir.DOWN).joinToString("   ") { vm.dirLabel(it) },
@@ -601,7 +604,15 @@ fun SettingsScreen(vm: AppVM) {
                 val t = vm.targets[d]
                 ListItem(
                     headlineContent = { Text("${d.arrow}  ${d.label}") },
-                    supportingContent = { Text(t?.let { "${MediaRepo.folderName(it)}  ($it)" } ?: "nicht belegt – antippen") },
+                    supportingContent = {
+                        Text(
+                            when (t) {
+                                null -> "nicht belegt – antippen"
+                                Vault.TARGET -> "🔒 Privater Ordner (nur in dieser App sichtbar)"
+                                else -> "${MediaRepo.folderName(t)}  ($t)"
+                            }
+                        )
+                    },
                     modifier = Modifier.clickable { editing = d },
                 )
             }
@@ -663,6 +674,14 @@ fun FolderDialog(vm: AppVM, d: Dir, onDismiss: () -> Unit) {
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                FilledTonalButton(
+                    onClick = {
+                        vm.setTarget(d, Vault.TARGET)
+                        onDismiss()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("🔒 Privater Ordner (nur ich)") }
+                Spacer(Modifier.height(8.dp))
                 TextButton(
                     enabled = newName.isNotBlank(),
                     onClick = {

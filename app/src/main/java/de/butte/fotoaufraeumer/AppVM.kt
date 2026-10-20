@@ -34,6 +34,7 @@ sealed interface Screen {
     data object Swipe : Screen
     data object Settings : Screen
     data class Enhance(val photo: Photo) : Screen
+    data object Vault : Screen
 }
 
 class IntentReq(val sender: IntentSender, val result: CompletableDeferred<Boolean>)
@@ -105,9 +106,12 @@ class AppVM(app: Application) : AndroidViewModel(app) {
 
     fun dirLabel(d: Dir): String = when {
         d == Dir.DOWN -> "${d.arrow} Löschen"
-        targets[d] != null -> "${d.arrow} ${MediaRepo.folderName(targets[d]!!)}"
+        targets[d] != null -> "${d.arrow} ${targetName(targets[d]!!)}"
         else -> "${d.arrow} frei"
     }
+
+    fun targetName(path: String): String =
+        if (path == Vault.TARGET) "🔒 Privat" else MediaRepo.folderName(path)
 
     // ---------- Scan ----------
     var scanning by mutableStateOf(false)
@@ -335,9 +339,13 @@ class AppVM(app: Application) : AndroidViewModel(app) {
         val q = queue
         viewModelScope.launch {
             val dels = q.filter { it.second == Dir.DOWN }.map { it.first }
-            val moves = q.filter { it.second != null && it.second != Dir.DOWN }
+            val t0 = targets
+            val all = q.filter { it.second != null && it.second != Dir.DOWN }
+            val privat = all.filter { t0[it.second!!] == Vault.TARGET }.map { it.first }
+            val moves = all.filter { t0[it.second!!] != Vault.TARGET }
             var trashed = 0
             var moved = 0
+            var hidden = 0
             var failed = 0
             val notDone = HashSet<Long>()
             if (dels.isNotEmpty()) {
@@ -358,12 +366,31 @@ class AppVM(app: Application) : AndroidViewModel(app) {
                     notDone += moves.map { it.first.id }
                 }
             }
+            if (privat.isNotEmpty()) {
+                // 1. Kopie in den privaten Ordner, 2. Original endgültig löschen (nicht Papierkorb – dort wäre es sichtbar)
+                val copied = withContext(Dispatchers.IO) {
+                    privat.mapNotNull { p -> Vault.importPhoto(ctx, p)?.let { p to it } }
+                }
+                failed += privat.size - copied.size
+                notDone += privat.filter { p -> copied.none { it.first.id == p.id } }.map { it.id }
+                if (copied.isNotEmpty()) {
+                    val ok = try { ask(MediaRepo.deleteRequest(ctx, copied.map { it.first.uri })) } catch (e: Exception) { false }
+                    if (ok) {
+                        hidden = copied.size
+                    } else {
+                        withContext(Dispatchers.IO) { copied.forEach { it.second.delete() } }
+                        notDone += copied.map { it.first.id }
+                    }
+                }
+                refreshVault()
+            }
             for ((p, _) in q) if (p.id !in notDone) seen += p.id
             queue = emptyList()
             photos = withContext(Dispatchers.IO) { MediaRepo.loadAll(ctx) }
             buildSwipeList()
             message = buildString {
                 append("Erledigt: $trashed gelöscht, $moved verschoben")
+                if (hidden > 0) append(", $hidden privat")
                 if (failed > 0) append(", $failed fehlgeschlagen")
                 if (notDone.isNotEmpty()) append(", ${notDone.size} abgebrochen")
             }
@@ -413,6 +440,48 @@ class AppVM(app: Application) : AndroidViewModel(app) {
                 message = "Original in den Papierkorb verschoben"
                 back()
             }
+        }
+    }
+
+    // ---------- Privater Ordner ----------
+    var vaultItems by mutableStateOf(listOf<VaultItem>())
+        private set
+    var vaultUnlocked by mutableStateOf(false)
+        private set
+    val vaultHasPin: Boolean get() = Vault.hasPin(ctx)
+
+    fun refreshVault() {
+        viewModelScope.launch { vaultItems = withContext(Dispatchers.IO) { Vault.list(ctx) } }
+    }
+
+    fun unlockVault(pin: String, newPin: Boolean): Boolean {
+        if (newPin) Vault.setPin(ctx, pin) else if (!Vault.checkPin(ctx, pin)) return false
+        vaultUnlocked = true
+        refreshVault()
+        return true
+    }
+
+    /** Beim Verlassen der App oder des privaten Ordners wieder sperren. */
+    fun lockVault() {
+        vaultUnlocked = false
+        if (screen == Screen.Vault) back()
+    }
+
+    fun restoreFromVault(items: List<VaultItem>) {
+        viewModelScope.launch {
+            val ok = withContext(Dispatchers.IO) { items.count { Vault.restore(ctx, it) != null } }
+            refreshVault()
+            photos = withContext(Dispatchers.IO) { MediaRepo.loadAll(ctx) }
+            message = if (ok == items.size) "$ok zurück in die Galerie (Ordner „Wiederhergestellt“)"
+            else "$ok von ${items.size} wiederhergestellt"
+        }
+    }
+
+    fun deleteFromVault(items: List<VaultItem>) {
+        viewModelScope.launch {
+            val ok = withContext(Dispatchers.IO) { items.count { Vault.delete(it) } }
+            refreshVault()
+            message = "$ok endgültig gelöscht"
         }
     }
 }

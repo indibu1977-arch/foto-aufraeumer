@@ -90,6 +90,10 @@ object MediaRepo {
     fun trashRequest(ctx: Context, uris: List<Uri>): PendingIntent =
         MediaStore.createTrashRequest(ctx.contentResolver, uris, true)
 
+    /** Endgültig löschen (ohne Papierkorb) – für Fotos, die in den privaten Ordner verschoben wurden. */
+    fun deleteRequest(ctx: Context, uris: List<Uri>): PendingIntent =
+        MediaStore.createDeleteRequest(ctx.contentResolver, uris)
+
     fun writeRequest(ctx: Context, uris: List<Uri>): PendingIntent =
         MediaStore.createWriteRequest(ctx.contentResolver, uris)
 
