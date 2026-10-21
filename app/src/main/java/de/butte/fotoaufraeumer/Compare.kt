@@ -12,6 +12,11 @@ import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -53,7 +58,7 @@ private val Bad = Color(0xFFC62828)
  * Ein Finger = Schieber bewegen, zwei Finger = zoomen und verschieben.
  */
 @Composable
-fun BeforeAfter(before: Bitmap, after: Bitmap, modifier: Modifier = Modifier) {
+fun BeforeAfter(before: Bitmap, after: Bitmap, modifier: Modifier = Modifier, labels: Pair<String, String> = "Vorher" to "Nachher") {
     var pos by remember { mutableFloatStateOf(0.5f) }
     var zoom by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
@@ -88,27 +93,32 @@ fun BeforeAfter(before: Bitmap, after: Bitmap, modifier: Modifier = Modifier) {
                     }
                 }
         ) {
-            val s = min(size.width / before.width, size.height / before.height)
-            val dw = (before.width * s).roundToInt()
-            val dh = (before.height * s).roundToInt()
-            val off = IntOffset(((size.width - dw) / 2).roundToInt(), ((size.height - dh) / 2).roundToInt())
+            // Jedes Bild für sich einpassen (unterschiedliche Formate werden nicht verzerrt)
+            fun fit(bmp: Bitmap): Pair<IntOffset, IntSize> {
+                val s = min(size.width / bmp.width, size.height / bmp.height)
+                val dw = (bmp.width * s).roundToInt()
+                val dh = (bmp.height * s).roundToInt()
+                return IntOffset(((size.width - dw) / 2).roundToInt(), ((size.height - dh) / 2).roundToInt()) to IntSize(dw, dh)
+            }
+            val (offB, sizeB) = fit(before)
+            val (offA, sizeA) = fit(after)
             val split = size.width * pos
             val tf: androidx.compose.ui.graphics.drawscope.DrawTransform.() -> Unit = {
                 translate(pan.x, pan.y)
                 scale(zoom, zoom, center)
             }
             clipRect(right = split) {
-                withTransform(tf) { drawImage(b, dstOffset = off, dstSize = IntSize(dw, dh)) }
+                withTransform(tf) { drawImage(b, dstOffset = offB, dstSize = sizeB) }
             }
             clipRect(left = split) {
-                withTransform(tf) { drawImage(a, dstOffset = off, dstSize = IntSize(dw, dh)) }
+                withTransform(tf) { drawImage(a, dstOffset = offA, dstSize = sizeA) }
             }
             drawLine(Color.White, Offset(split, 0f), Offset(split, size.height), strokeWidth = 2.dp.toPx())
             drawCircle(Color.White, radius = 15.dp.toPx(), center = Offset(split, size.height / 2))
             drawCircle(Color(0xFF424242), radius = 12.dp.toPx(), center = Offset(split, size.height / 2))
         }
-        Tag("Vorher", Modifier.align(Alignment.TopStart).padding(8.dp))
-        Tag("Nachher", Modifier.align(Alignment.TopEnd).padding(8.dp))
+        Tag(labels.first, Modifier.align(Alignment.TopStart).padding(8.dp))
+        Tag(labels.second, Modifier.align(Alignment.TopEnd).padding(8.dp))
         if (zoom > 1.01f) {
             AssistChip(
                 onClick = { zoom = 1f; pan = Offset.Zero },
@@ -335,6 +345,11 @@ fun EditedListScreen(vm: AppVM) {
             contentPadding = PaddingValues(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            item {
+                Button(onClick = { vm.go(Screen.PickCompare) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("📷 Zwei Fotos selbst auswählen")
+                }
+            }
             if (pairs.isEmpty()) {
                 item {
                     Text(
@@ -362,7 +377,9 @@ fun EditedListScreen(vm: AppVM) {
 }
 
 @Composable
-fun CompareScreen(vm: AppVM, before: Photo, after: Photo) {
+fun CompareScreen(vm: AppVM, before: Photo, after: Photo, free: Boolean = false) {
+    val la = if (free) "Bild A" else "Vorher"
+    val lb = if (free) "Bild B" else "Nachher"
     val ctx = LocalContext.current
     var bb by remember(before.id) { mutableStateOf<Bitmap?>(null) }
     var ab by remember(after.id) { mutableStateOf<Bitmap?>(null) }
@@ -386,7 +403,11 @@ fun CompareScreen(vm: AppVM, before: Photo, after: Photo) {
             TopAppBar(
                 title = { Text("Vergleichen") },
                 navigationIcon = { BackButton { vm.back() } },
-                actions = { TextButton(onClick = { vm.go(Screen.Enhance(after)) }) { Text("Weiter bearbeiten") } },
+                actions = {
+                    TextButton(onClick = { vm.replaceTop(Screen.Compare(after, before, free)) }) { Text("⇄ Tauschen") }
+                    if (free) TextButton(onClick = { vm.back() }) { Text("Andere") }
+                    else TextButton(onClick = { vm.go(Screen.Enhance(after)) }) { Text("Bearbeiten") }
+                },
             )
         }
     ) { pad ->
@@ -395,7 +416,7 @@ fun CompareScreen(vm: AppVM, before: Photo, after: Photo) {
                 val x = bb
                 val y = ab
                 when {
-                    x != null && y != null -> BeforeAfter(x, y, Modifier.fillMaxSize())
+                    x != null && y != null -> BeforeAfter(x, y, Modifier.fillMaxSize(), la to lb)
                     failed -> Text("Bild konnte nicht geladen werden", color = Color.White, modifier = Modifier.align(Alignment.Center))
                     else -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                 }
@@ -410,13 +431,13 @@ fun CompareScreen(vm: AppVM, before: Photo, after: Photo) {
                 QualityCompare(mb, ma, startOpen = true)
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "Vorher: ${before.width}×${before.height} · ${sizeStr(before.size)}\nNachher: ${after.width}×${after.height} · ${sizeStr(after.size)}",
+                    "$la: ${before.name}\n   ${before.width}×${before.height} · ${sizeStr(before.size)} · ${dateStr(before.dateTaken)}\n$lb: ${after.name}\n   ${after.width}×${after.height} · ${sizeStr(after.size)} · ${dateStr(after.dateTaken)}",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { ask = before }, modifier = Modifier.weight(1f)) { Text("Original löschen", maxLines = 1) }
-                    OutlinedButton(onClick = { ask = after }, modifier = Modifier.weight(1f)) { Text("Bearbeitung löschen", maxLines = 1) }
+                    OutlinedButton(onClick = { ask = before }, modifier = Modifier.weight(1f)) { Text(if (free) "A löschen" else "Original löschen", maxLines = 1) }
+                    OutlinedButton(onClick = { ask = after }, modifier = Modifier.weight(1f)) { Text(if (free) "B löschen" else "Bearbeitung löschen", maxLines = 1) }
                 }
             }
         }
@@ -425,15 +446,121 @@ fun CompareScreen(vm: AppVM, before: Photo, after: Photo) {
     ask?.let { p ->
         AlertDialog(
             onDismissRequest = { ask = null },
-            title = { Text(if (p.id == before.id) "Original löschen?" else "Bearbeitung löschen?") },
+            title = { Text(if (free) "${if (p.id == before.id) la else lb} löschen?" else if (p.id == before.id) "Original löschen?" else "Bearbeitung löschen?") },
             text = { Text("${p.name} kommt in den Papierkorb (30 Tage wiederherstellbar).") },
             confirmButton = {
                 TextButton(onClick = {
                     ask = null
-                    vm.trashOne(p, if (p.id == before.id) "Original in den Papierkorb verschoben" else "Bearbeitung in den Papierkorb verschoben")
+                    vm.trashOne(p, "${p.name} in den Papierkorb verschoben")
                 }) { Text("Löschen") }
             },
             dismissButton = { TextButton(onClick = { ask = null }) { Text("Abbrechen") } },
         )
+    }
+}
+
+// ======================= Zwei Fotos frei auswählen =======================
+
+@Composable
+fun PickCompareScreen(vm: AppVM) {
+    var album by vm::compareAlbum
+    var picked by vm::comparePick
+    val albums = remember(vm.photos) { MediaRepo.albums(vm.photos) }
+    val shown = remember(vm.photos, album) { vm.photos.filter { album == null || it.relPath == album } }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text("Zwei Fotos wählen")
+                        Text(
+                            when (picked.size) { 0 -> "Erst Bild A antippen"; 1 -> "Jetzt Bild B antippen"; else -> "Bereit – oder antippen zum Ändern" },
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                },
+                navigationIcon = { BackButton { vm.back() } },
+            )
+        },
+        bottomBar = {
+            Surface(tonalElevation = 3.dp, shadowElevation = 6.dp) {
+                Row(
+                    Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    for (i in 0..1) {
+                        val p = picked.getOrNull(i)
+                        Box(
+                            Modifier.size(52.dp).clip(RoundedCornerShape(6.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (p != null) AsyncImage(p.uri, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                            Text(if (i == 0) "A" else "B", color = Color.White, fontWeight = FontWeight.Bold,
+                                modifier = Modifier.align(Alignment.TopStart).background(Color(0xAA000000)).padding(horizontal = 4.dp))
+                        }
+                    }
+                    TextButton(onClick = { picked = emptyList() }, enabled = picked.isNotEmpty()) { Text("Leeren") }
+                    Spacer(Modifier.weight(1f))
+                    Button(
+                        onClick = { vm.go(Screen.Compare(picked[0], picked[1], free = true)) },
+                        enabled = picked.size == 2,
+                    ) { Text("Vergleichen") }
+                }
+            }
+        },
+    ) { pad ->
+        Column(Modifier.padding(pad).fillMaxSize()) {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                item { FilterChip(selected = album == null, onClick = { album = null }, label = { Text("Alle (${vm.photos.size})") }) }
+                items(albums, key = { it.path }) { a ->
+                    FilterChip(selected = album == a.path, onClick = { album = a.path }, label = { Text("${a.name} (${a.count})") })
+                }
+            }
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(100.dp),
+                contentPadding = PaddingValues(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                gridItems(shown, key = { it.id }) { p ->
+                    val idx = picked.indexOfFirst { it.id == p.id }
+                    Box(
+                        Modifier
+                            .aspectRatio(1f)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.DarkGray)
+                            .clickable {
+                                picked = when {
+                                    idx >= 0 -> picked.filterNot { it.id == p.id }
+                                    picked.size < 2 -> picked + p
+                                    else -> listOf(picked[0], p) // B ersetzen
+                                }
+                            }
+                    ) {
+                        AsyncImage(p.uri, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        if (idx >= 0) {
+                            Box(Modifier.fillMaxSize().background(Color(0x661565C0)))
+                            Text(
+                                if (idx == 0) "A" else "B",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 22.sp,
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF1565C0))
+                                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }

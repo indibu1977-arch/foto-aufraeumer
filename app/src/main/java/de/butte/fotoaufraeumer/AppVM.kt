@@ -38,7 +38,8 @@ sealed interface Screen {
     data object Vault : Screen
     data class Erase(val photo: Photo) : Screen
     data object Edited : Screen
-    data class Compare(val before: Photo, val after: Photo) : Screen
+    data class Compare(val before: Photo, val after: Photo, val free: Boolean = false) : Screen
+    data object PickCompare : Screen
 }
 
 class IntentReq(val sender: IntentSender, val result: CompletableDeferred<Boolean>)
@@ -52,6 +53,7 @@ class AppVM(app: Application) : AndroidViewModel(app) {
         private set
     val screen: Screen get() = stack.last()
     fun go(s: Screen) { stack = stack + s }
+    fun replaceTop(s: Screen) { stack = stack.dropLast(1) + s }
     fun back() { if (stack.size > 1) stack = stack.dropLast(1) }
 
     // ---------- Allgemein ----------
@@ -116,6 +118,10 @@ class AppVM(app: Application) : AndroidViewModel(app) {
 
     fun targetName(path: String): String =
         if (path == Vault.TARGET) "🔒 Privat" else MediaRepo.folderName(path)
+
+    // Auswahl für „Zwei Fotos vergleichen“ (bleibt beim Zurückkehren erhalten)
+    var comparePick by mutableStateOf(listOf<Photo>())
+    var compareAlbum by mutableStateOf<String?>(null)
 
     // ---------- Scan ----------
     var scanning by mutableStateOf(false)

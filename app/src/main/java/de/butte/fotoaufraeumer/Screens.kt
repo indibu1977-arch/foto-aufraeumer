@@ -84,7 +84,7 @@ fun HomeScreen(vm: AppVM) {
                 vm.go(Screen.SwipePick)
             }
             val edited = remember(vm.photos) { vm.photos.count { isEdited(it) } }
-            BigCard("🆚  Bearbeitete vergleichen", "Original und Bearbeitung mit Schieber und Qualitätswerten vergleichen ($edited)") {
+            BigCard("🆚  Fotos vergleichen", "Bearbeitete ($edited) oder zwei beliebige Fotos – mit Schieber und Qualitätswerten") {
                 vm.go(Screen.Edited)
             }
             BigCard("🔒  Privater Ordner", "Fotos, die nur du in dieser App siehst – mit PIN geschützt") {
