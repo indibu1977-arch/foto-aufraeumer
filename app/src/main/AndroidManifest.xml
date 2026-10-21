@@ -18,6 +18,9 @@
         android:allowBackup="false"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="ocr" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

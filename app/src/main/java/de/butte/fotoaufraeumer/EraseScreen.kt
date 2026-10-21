@@ -75,7 +75,7 @@ fun EraseScreen(vm: AppVM, photo: Photo) {
             result = null
             version++
             busy = null
-            vm.message = if (lines.isEmpty()) "Keine Schrift erkannt – mit dem Pinsel selbst markieren"
+            vm.message = if (lines.isEmpty()) "Keine Schrift erkannt – mit dem Pinsel markieren (beim ersten Mal lädt die Texterkennung evtl. noch, später „🔍 Erkennen“ erneut tippen)"
             else "${lines.size} Textzeile(n) markiert – prüfen und „Entfernen“ tippen"
         }
     }
