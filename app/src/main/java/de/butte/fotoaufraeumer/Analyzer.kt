@@ -51,6 +51,8 @@ object Analyzer {
         return h
     }
 
+    fun sharpnessOf(bmp: Bitmap): Float = sharpness(bmp).first
+
     /** Schärfe (Varianz des Laplace-Filters) und mittlere Helligkeit. */
     private fun sharpness(bmp: Bitmap): Pair<Float, Float> {
         val w = 256

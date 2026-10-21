@@ -114,6 +114,8 @@ fun App(vm: AppVM) {
                         is Screen.Enhance -> EnhanceScreen(vm, s.photo)
                         Screen.Vault -> VaultScreen(vm)
                         is Screen.Erase -> EraseScreen(vm, s.photo)
+                        Screen.Edited -> EditedListScreen(vm)
+                        is Screen.Compare -> CompareScreen(vm, s.before, s.after)
                     }
                 }
                 SnackbarHost(

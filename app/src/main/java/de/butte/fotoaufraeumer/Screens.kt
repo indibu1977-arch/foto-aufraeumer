@@ -83,6 +83,10 @@ fun HomeScreen(vm: AppVM) {
             BigCard("👆  Wisch-Sortierer", "Foto für Foto: nach unten löschen, sonst in Ordner einsortieren") {
                 vm.go(Screen.SwipePick)
             }
+            val edited = remember(vm.photos) { vm.photos.count { isEdited(it) } }
+            BigCard("🆚  Bearbeitete vergleichen", "Original und Bearbeitung mit Schieber und Qualitätswerten vergleichen ($edited)") {
+                vm.go(Screen.Edited)
+            }
             BigCard("🔒  Privater Ordner", "Fotos, die nur du in dieser App siehst – mit PIN geschützt") {
                 vm.go(Screen.Vault)
             }
@@ -720,132 +724,4 @@ fun FolderDialog(vm: AppVM, d: Dir, onDismiss: () -> Unit) {
             }) { Text("Belegung entfernen") }
         },
     )
-}
-
-// ======================= Verbessern =======================
-
-@Composable
-fun EnhanceScreen(vm: AppVM, photo: Photo) {
-    val ctx = LocalContext.current
-    var original by remember(photo.id) { mutableStateOf<Bitmap?>(null) }
-    var processed by remember(photo.id) { mutableStateOf<Bitmap?>(null) }
-    var adj by remember(photo.id) { mutableStateOf(Adjust()) }
-    var showOrig by remember { mutableStateOf(false) }
-    var failed by remember(photo.id) { mutableStateOf(false) }
-
-    LaunchedEffect(photo.id) {
-        val b = withContext(Dispatchers.IO) {
-            try { Enhancer.decode(ctx, photo.uri, 1600) } catch (e: Throwable) { null }
-        }
-        if (b == null) failed = true else original = b
-    }
-    LaunchedEffect(original, adj) {
-        val o = original ?: return@LaunchedEffect
-        delay(40)
-        processed = withContext(Dispatchers.Default) { Enhancer.apply(o, adj) }
-    }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Verbessern") },
-                navigationIcon = { BackButton { vm.back() } },
-                actions = {
-                    TextButton(
-                        onClick = { vm.saveEnhanced(photo, adj) },
-                        enabled = !vm.saving && original != null && adj != Adjust(),
-                    ) { Text("Speichern") }
-                },
-            )
-        }
-    ) { pad ->
-        Column(Modifier.padding(pad).fillMaxSize()) {
-            Box(
-                Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .background(Color.Black)
-                    .pointerInput(Unit) {
-                        detectTapGestures(onPress = {
-                            showOrig = true
-                            tryAwaitRelease()
-                            showOrig = false
-                        })
-                    }
-            ) {
-                val bmp = if (showOrig) original else (processed ?: original)
-                if (bmp != null) {
-                    val img = remember(bmp) { bmp.asImageBitmap() }
-                    Image(img, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-                } else if (failed) {
-                    Text("Bild konnte nicht geladen werden", color = Color.White, modifier = Modifier.align(Alignment.Center))
-                } else {
-                    CircularProgressIndicator(Modifier.align(Alignment.Center))
-                }
-                Text(
-                    if (showOrig) "ORIGINAL" else "Gedrückt halten = Vorher",
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(6.dp)
-                        .background(Color(0x88000000), RoundedCornerShape(6.dp))
-                        .padding(horizontal = 8.dp, vertical = 3.dp),
-                )
-                if (vm.saving) {
-                    Column(
-                        Modifier.matchParentSize().background(Color(0xAA000000)),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        CircularProgressIndicator()
-                        Spacer(Modifier.height(8.dp))
-                        Text("Speichere in voller Größe …", color = Color.White)
-                    }
-                }
-            }
-            if (vm.savedFor == photo.id) {
-                Row(
-                    Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.secondaryContainer).padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("✓ Kopie gespeichert", Modifier.weight(1f))
-                    TextButton(onClick = { vm.deleteOriginal(photo) }) { Text("Original löschen") }
-                }
-            }
-            Column(
-                Modifier
-                    .heightIn(max = 320.dp)
-                    .verticalScroll(rememberScrollState())
-                    .navigationBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { original?.let { adj = Enhancer.auto(it) } }, enabled = original != null) {
-                        Text("✨ Automatisch")
-                    }
-                    OutlinedButton(onClick = { adj = Adjust() }) { Text("Zurücksetzen") }
-                }
-                OutlinedButton(onClick = { vm.go(Screen.Erase(photo)) }, modifier = Modifier.fillMaxWidth()) {
-                    Text("🅰 Schrift entfernen (Datum, Wasserzeichen …)")
-                }
-                Slide("Helligkeit", adj.brightness, -1f..1f) { adj = adj.copy(brightness = it) }
-                Slide("Kontrast", adj.contrast, -1f..1f) { adj = adj.copy(contrast = it) }
-                Slide("Farbkraft", adj.saturation, -1f..1f) { adj = adj.copy(saturation = it) }
-                Slide("Wärme", adj.warmth, -1f..1f) { adj = adj.copy(warmth = it) }
-                Slide("Schärfe", adj.sharpen, 0f..1f) { adj = adj.copy(sharpen = it) }
-            }
-        }
-    }
-}
-
-@Composable
-private fun Slide(label: String, value: Float, range: ClosedFloatingPointRange<Float>, onChange: (Float) -> Unit) {
-    Column {
-        Row {
-            Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-            Text("${(value * 100).roundToInt()}", style = MaterialTheme.typography.bodySmall)
-        }
-        Slider(value = value, onValueChange = onChange, valueRange = range)
-    }
 }

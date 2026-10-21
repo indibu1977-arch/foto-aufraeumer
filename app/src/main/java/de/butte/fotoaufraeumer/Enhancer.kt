@@ -8,6 +8,7 @@ import android.graphics.ColorMatrixColorFilter
 import android.graphics.ImageDecoder
 import android.graphics.Paint
 import android.net.Uri
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -18,6 +19,7 @@ data class Adjust(
     val saturation: Float = 0f,
     val warmth: Float = 0f,
     val sharpen: Float = 0f,
+    val denoise: Float = 0f,
     val lo: Float = 0f,
     val hi: Float = 255f,
 )
@@ -80,8 +82,48 @@ object Enhancer {
         val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
         val paint = Paint(Paint.FILTER_BITMAP_FLAG).apply { colorFilter = ColorMatrixColorFilter(matrix(a)) }
         Canvas(out).drawBitmap(src, 0f, 0f, paint)
+        if (a.denoise > 0.01f) denoise(out, a.denoise)
         if (a.sharpen > 0.01f) sharpen(out, a.sharpen * 1.6f)
         return out
+    }
+
+    /** Kantenerhaltendes Entrauschen: nur ähnliche Nachbarn (5x5) mitteln. */
+    private fun denoise(bmp: Bitmap, amount: Float) {
+        val w = bmp.width
+        val h = bmp.height
+        if (w < 5 || h < 5) return
+        val src = IntArray(w * h)
+        bmp.getPixels(src, 0, w, 0, 0, w, h)
+        val dst = src.copyOf()
+        val th = 10 + (amount * 28).toInt()
+        val blend = (0.5f + amount * 0.5f).coerceAtMost(1f)
+        for (y in 2 until h - 2) {
+            for (x in 2 until w - 2) {
+                val i = y * w + x
+                val c = src[i]
+                val r0 = (c shr 16) and 255
+                val g0 = (c shr 8) and 255
+                val b0 = c and 255
+                var sr = 0; var sg = 0; var sb = 0; var n = 0
+                for (dy in -2..2) {
+                    val base = i + dy * w
+                    for (dx in -2..2) {
+                        val d = src[base + dx]
+                        val r = (d shr 16) and 255
+                        val g = (d shr 8) and 255
+                        val b = d and 255
+                        if (abs(r - r0) + abs(g - g0) + abs(b - b0) <= th * 3) {
+                            sr += r; sg += g; sb += b; n++
+                        }
+                    }
+                }
+                val nr = r0 + ((sr / n - r0) * blend).roundToInt()
+                val ng = g0 + ((sg / n - g0) * blend).roundToInt()
+                val nb = b0 + ((sb / n - b0) * blend).roundToInt()
+                dst[i] = (c and -0x1000000) or (nr shl 16) or (ng shl 8) or nb
+            }
+        }
+        bmp.setPixels(dst, 0, w, 0, 0, w, h)
     }
 
     /** Unscharf-Maskieren mit 3x3-Kernel. */

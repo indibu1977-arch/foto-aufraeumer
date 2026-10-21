@@ -54,7 +54,6 @@ fun EraseScreen(vm: AppVM, photo: Photo) {
     var erasing by remember { mutableStateOf(false) }   // Radierer statt Pinsel
     var brush by remember { mutableFloatStateOf(18f) }   // dp
     var busy by remember { mutableStateOf<String?>(null) }
-    var showOrig by remember { mutableStateOf(false) }
     var failed by remember(photo.id) { mutableStateOf(false) }
     val undo = remember(photo.id) { ArrayDeque<Bitmap>() }
 
@@ -118,8 +117,12 @@ fun EraseScreen(vm: AppVM, photo: Photo) {
                 val o = original
                 val ov = overlay
                 if (o != null && ov != null) {
-                    val shown = if (showOrig || result == null) o else result!!
-                    val showMask = result == null && !showOrig
+                    val res = result
+                    if (res != null) {
+                        BeforeAfter(o, res, Modifier.fillMaxSize())
+                    } else {
+                    val shown = o
+                    val showMask = true
                     Canvas(
                         Modifier
                             .fillMaxSize()
@@ -170,27 +173,6 @@ fun EraseScreen(vm: AppVM, photo: Photo) {
                         drawImage(shown.asImageBitmap(), dstOffset = off, dstSize = IntSize(dw, dh))
                         if (showMask) drawImage(ov.asImageBitmap(), dstOffset = off, dstSize = IntSize(dw, dh), alpha = 0.55f)
                     }
-                    if (result != null) {
-                        Text(
-                            if (showOrig) "ORIGINAL" else "Gedrückt halten = Vorher",
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(6.dp)
-                                .background(Color(0x88000000), RoundedCornerShape(6.dp))
-                                .padding(horizontal = 8.dp, vertical = 3.dp),
-                        )
-                        // Vorher/Nachher: über dem Bild gedrückt halten
-                        Box(
-                            Modifier.matchParentSize().pointerInput(Unit) {
-                                detectTapGestures(onPress = {
-                                    showOrig = true
-                                    tryAwaitRelease()
-                                    showOrig = false
-                                })
-                            }
-                        )
                     }
                 } else if (failed) {
                     Text("Bild konnte nicht geladen werden", color = Color.White, modifier = Modifier.align(Alignment.Center))
@@ -214,6 +196,7 @@ fun EraseScreen(vm: AppVM, photo: Photo) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("✓ Kopie gespeichert", Modifier.weight(1f))
+                    TextButton(onClick = { vm.compareSaved(photo) }) { Text("Vergleichen") }
                     TextButton(onClick = { vm.deleteOriginal(photo) }) { Text("Original löschen") }
                 }
             }

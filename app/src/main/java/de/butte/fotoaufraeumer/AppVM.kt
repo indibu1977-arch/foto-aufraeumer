@@ -37,6 +37,8 @@ sealed interface Screen {
     data class Enhance(val photo: Photo) : Screen
     data object Vault : Screen
     data class Erase(val photo: Photo) : Screen
+    data object Edited : Screen
+    data class Compare(val before: Photo, val after: Photo) : Screen
 }
 
 class IntentReq(val sender: IntentSender, val result: CompletableDeferred<Boolean>)
@@ -405,6 +407,26 @@ class AppVM(app: Application) : AndroidViewModel(app) {
         private set
     var savedFor by mutableStateOf<Long?>(null)
         private set
+    private var savedCopyId: Long? = null
+
+    /** Gerade gespeicherte Kopie mit dem Original vergleichen. */
+    fun compareSaved(orig: Photo) {
+        val c = photos.firstOrNull { it.id == savedCopyId }
+        if (c == null) message = "Kopie nicht gefunden" else go(Screen.Compare(orig, c))
+    }
+
+    /** Ein Foto in den Papierkorb und zurück zum vorigen Bildschirm. */
+    fun trashOne(p: Photo, msg: String) {
+        viewModelScope.launch {
+            val ok = try { ask(MediaRepo.trashRequest(ctx, listOf(p.uri))) } catch (e: Exception) { false }
+            if (ok) {
+                removeIds(setOf(p.id))
+                if (savedFor == p.id) savedFor = null
+                message = msg
+                back()
+            }
+        }
+    }
 
     fun saveEnhanced(p: Photo, a: Adjust) {
         if (saving) return
@@ -427,6 +449,7 @@ class AppVM(app: Application) : AndroidViewModel(app) {
                 message = "Speichern fehlgeschlagen"
             } else {
                 savedFor = p.id
+                savedCopyId = try { android.content.ContentUris.parseId(uri) } catch (e: Exception) { null }
                 message = "Als Kopie gespeichert (…_verbessert.jpg)"
                 photos = withContext(Dispatchers.IO) { MediaRepo.loadAll(ctx) }
             }
@@ -459,6 +482,7 @@ class AppVM(app: Application) : AndroidViewModel(app) {
                 message = "Speichern fehlgeschlagen"
             } else {
                 savedFor = p.id
+                savedCopyId = try { android.content.ContentUris.parseId(uri) } catch (e: Exception) { null }
                 message = "Als Kopie gespeichert (…_ohneText.jpg)"
                 photos = withContext(Dispatchers.IO) { MediaRepo.loadAll(ctx) }
             }
