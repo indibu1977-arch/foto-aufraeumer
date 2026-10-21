@@ -26,6 +26,12 @@ jobs:
       - name: APK bauen
         run: gradle assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
 
+      - name: Signatur prüfen
+        run: |
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          $BT/apksigner verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+          $BT/zipalign -c -P 16 -v 4 app/build/outputs/apk/release/app-release.apk | tail -3
+
       - name: APK umbenennen
         run: cp app/build/outputs/apk/release/app-release.apk FotoAufraeumer.apk
 
