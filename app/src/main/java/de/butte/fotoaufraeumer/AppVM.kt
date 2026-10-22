@@ -358,6 +358,8 @@ class AppVM(app: Application) : AndroidViewModel(app) {
             message = "Richtung „${dir.label}“ hat noch keinen Ordner – in den Einstellungen festlegen"
             return false
         }
+        // Nach einem Sprung zurück: alte Entscheidung für dieses Foto ersetzen
+        queue = queue.filterNot { it.first.id == p.id }
         if (dir != null && dir != Dir.DOWN && targets[dir] == p.relPath) {
             // liegt schon im Zielordner
             queue = queue + (p to null)
@@ -369,9 +371,15 @@ class AppVM(app: Application) : AndroidViewModel(app) {
     }
 
     fun undo() {
-        if (queue.isEmpty()) return
+        val last = queue.lastOrNull() ?: return
         queue = queue.dropLast(1)
-        swipeIndex = max(0, swipeIndex - 1)
+        val i = swipeList.indexOfFirst { it.id == last.first.id }
+        swipeIndex = if (i >= 0) i else max(0, swipeIndex - 1)
+    }
+
+    /** Aus der Galerie-Übersicht an eine beliebige Stelle springen – Übersprungenes bleibt unverändert. */
+    fun jumpTo(i: Int) {
+        swipeIndex = i.coerceIn(0, swipeList.size)
     }
 
     fun discardSwipe() {

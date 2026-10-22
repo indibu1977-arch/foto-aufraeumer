@@ -53,7 +53,7 @@ enum class GalleryMode(val label: String, val per: Int) {
 
 private val monthFmt = SimpleDateFormat("LLLL yyyy", Locale.GERMANY)
 
-private fun monthOf(p: Photo?): String =
+internal fun monthOf(p: Photo?): String =
     if (p == null || p.dateTaken <= 0) "" else monthFmt.format(Date(p.dateTaken))
 
 // ======================= Galerie =======================
@@ -396,7 +396,7 @@ private fun GalleryCard(
 // ---------- Schnellscroll-Leiste ----------
 
 @Composable
-private fun BoxScope.FastScroller(
+internal fun BoxScope.FastScroller(
     total: Int,
     current: Int,
     label: (Int) -> String,
@@ -528,6 +528,74 @@ private fun ZoomDialog(p: Photo, onDismiss: () -> Unit) {
                     .background(Color(0x88000000))
                     .navigationBarsPadding()
                     .padding(8.dp),
+            )
+        }
+    }
+}
+
+// ======================= Galerie im Wisch-Sortierer =======================
+
+/** Übersicht aller Fotos des Wisch-Sortierers: schnell scrollen, Foto antippen = dort weitersortieren. */
+@Composable
+fun SwipeJumpGrid(vm: AppVM, onPicked: () -> Unit) {
+    val list = vm.swipeList
+    val queued = remember(vm.queue) { vm.queue.associate { it.first.id to it.second } }
+    val scope = rememberCoroutineScope()
+    val state = rememberLazyGridState(
+        initialFirstVisibleItemIndex = vm.swipeIndex.coerceIn(0, max(0, list.size - 1))
+    )
+    Column(Modifier.fillMaxSize()) {
+        Text(
+            "Foto antippen = ab dort weiter wischen. Übersprungene Fotos bleiben unverändert.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+        )
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(4),
+                state = state,
+                contentPadding = PaddingValues(2.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                itemsIndexed(list, key = { _, p -> p.id }) { i, p ->
+                    val done = p.id in queued
+                    val d = queued[p.id]
+                    val label = when {
+                        done && d == null -> "✓ behalten"
+                        done -> vm.dirLabel(d!!)
+                        i == vm.swipeIndex -> "▶ aktuell"
+                        else -> null
+                    }
+                    Thumb(
+                        p = p,
+                        selected = d == Dir.DOWN,
+                        label = label,
+                        modifier = Modifier
+                            .aspectRatio(1f)
+                            .then(
+                                if (i == vm.swipeIndex) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
+                                else Modifier
+                            ),
+                        onClick = {
+                            vm.jumpTo(i)
+                            onPicked()
+                        },
+                        onLongClick = {
+                            vm.jumpTo(i)
+                            onPicked()
+                        },
+                    )
+                }
+            }
+            FastScroller(
+                total = list.size,
+                current = state.firstVisibleItemIndex,
+                label = { monthOf(list.getOrNull(it)) },
+                onJump = { i -> scope.launch { state.scrollToItem(i) } },
             )
         }
     }

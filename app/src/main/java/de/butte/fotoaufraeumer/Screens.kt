@@ -396,7 +396,9 @@ private fun dirFor(o: Offset, th: Float): Dir? = when {
 fun SwipeScreen(vm: AppVM) {
     val current = vm.swipeList.getOrNull(vm.swipeIndex)
     var askLeave by remember { mutableStateOf(false) }
+    var jump by remember { mutableStateOf(false) }
     BackHandler(enabled = vm.pendingCount > 0) { askLeave = true }
+    BackHandler(enabled = jump) { jump = false }
 
     Scaffold(
         topBar = {
@@ -412,6 +414,12 @@ fun SwipeScreen(vm: AppVM) {
                 },
                 navigationIcon = { BackButton { if (vm.pendingCount > 0) askLeave = true else vm.back() } },
                 actions = {
+                    FilledTonalButton(
+                        onClick = { jump = !jump },
+                        enabled = vm.swipeList.isNotEmpty(),
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                        modifier = Modifier.padding(end = 6.dp),
+                    ) { Text(if (jump) "✕ Galerie" else "▦ Galerie", maxLines = 1) }
                     if (vm.pendingCount > 0) {
                         Button(onClick = { vm.applySwipe() }, modifier = Modifier.padding(end = 8.dp)) {
                             Text("Anwenden (${vm.pendingCount})")
@@ -421,7 +429,9 @@ fun SwipeScreen(vm: AppVM) {
             )
         }
     ) { pad ->
-        Column(Modifier.padding(pad).fillMaxSize()) {
+        if (jump) {
+            Box(Modifier.padding(pad).fillMaxSize()) { SwipeJumpGrid(vm) { jump = false } }
+        } else Column(Modifier.padding(pad).fillMaxSize()) {
             Text(
                 vm.dirLabel(Dir.UP),
                 Modifier.fillMaxWidth().padding(top = 4.dp),
