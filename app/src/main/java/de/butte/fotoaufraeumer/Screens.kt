@@ -83,6 +83,9 @@ fun HomeScreen(vm: AppVM) {
             BigCard("👆  Wisch-Sortierer", "Foto für Foto: nach unten löschen, sonst in Ordner einsortieren") {
                 vm.go(Screen.SwipePick)
             }
+            BigCard("🖼️  Galerie", "Durch alle Fotos scrollen – Raster, 2 oder 1 Bild – nach unten wischen zum Löschen") {
+                vm.go(Screen.Gallery)
+            }
             val edited = remember(vm.photos) { vm.photos.count { isEdited(it) } }
             BigCard("🆚  Fotos vergleichen", "Bearbeitete ($edited) oder zwei beliebige Fotos – mit Schieber und Qualitätswerten") {
                 vm.go(Screen.Edited)

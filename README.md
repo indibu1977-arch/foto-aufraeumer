@@ -7,6 +7,7 @@ Android-App zum Aufräumen der Galerie – läuft komplett offline auf dem Handy
 - **Ähnliche Fotos** finden (Serienbilder, Fast-Gleiches) – „Beste behalten“ behält das schärfste
 - **Qualität prüfen**: unscharf, zu dunkel, überbelichtet
 - **Wisch-Sortierer**: nach unten = löschen, links/oben/rechts = frei wählbare Ordner, mit Rückgängig
+- **Galerie**: alle Fotos durchscrollen – Raster, 2 Bilder oder 1 Bild pro Bildschirm, Schnellscroll-Leiste mit Monatsanzeige; nach unten wischen bzw. lange drücken = zum Löschen markieren, alle markierten auf einmal löschen
 - **Verbessern**: Automatisch, Helligkeit, Kontrast, Farbkraft, Wärme, Schärfe – speichert als Kopie
 
 Gelöschte Fotos landen im Papierkorb (30 Tage wiederherstellbar).

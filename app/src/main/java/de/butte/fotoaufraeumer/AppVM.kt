@@ -40,6 +40,7 @@ sealed interface Screen {
     data object Edited : Screen
     data class Compare(val before: Photo, val after: Photo, val free: Boolean = false) : Screen
     data object PickCompare : Screen
+    data object Gallery : Screen
 }
 
 class IntentReq(val sender: IntentSender, val result: CompletableDeferred<Boolean>)
@@ -276,11 +277,44 @@ class AppVM(app: Application) : AndroidViewModel(app) {
         simGroups = simGroups.map { g -> g.filterNot { it.id in ids } }.filter { it.size > 1 }
         quality = quality.filterNot { it.photo.id in ids }
         selection = selection - ids
+        galleryMarks = galleryMarks.filterNot { it in ids }
         if (swipeList.any { it.id in ids }) {
             val before = swipeList.take(swipeIndex).count { it.id in ids }
             swipeList = swipeList.filterNot { it.id in ids }
             queue = queue.filterNot { it.first.id in ids }
             swipeIndex = max(0, swipeIndex - before)
+        }
+    }
+
+    // ---------- Galerie ----------
+    /** Zum Löschen markierte Fotos – Reihenfolge wird für „Rückgängig“ gebraucht. */
+    var galleryMarks by mutableStateOf(listOf<Long>())
+        private set
+    /** Aktuelle Position in der Galerie (bleibt beim Umschalten der Ansicht erhalten). */
+    var galleryIndex by mutableIntStateOf(0)
+
+    fun mark(id: Long) { if (id !in galleryMarks) galleryMarks = galleryMarks + id }
+    fun unmark(id: Long) { galleryMarks = galleryMarks - id }
+    fun toggleMark(id: Long) { if (id in galleryMarks) unmark(id) else mark(id) }
+    fun undoMark() { galleryMarks = galleryMarks.dropLast(1) }
+    fun clearMarks() { galleryMarks = emptyList() }
+
+    fun deleteMarked(thenBack: Boolean = false) {
+        val ids = galleryMarks.toSet()
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            val uris = photos.filter { it.id in ids }.map { it.uri }
+            if (uris.isEmpty()) {
+                galleryMarks = emptyList()
+                return@launch
+            }
+            val ok = try { ask(MediaRepo.trashRequest(ctx, uris)) } catch (e: Exception) { false }
+            if (ok) {
+                removeIds(ids)
+                galleryMarks = emptyList()
+                message = "${uris.size} Fotos in den Papierkorb verschoben"
+                if (thenBack) back()
+            }
         }
     }
 

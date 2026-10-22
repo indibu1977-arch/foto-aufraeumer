@@ -117,6 +117,7 @@ fun App(vm: AppVM) {
                         Screen.Edited -> EditedListScreen(vm)
                         is Screen.Compare -> CompareScreen(vm, s.before, s.after, s.free)
                         Screen.PickCompare -> PickCompareScreen(vm)
+                        Screen.Gallery -> GalleryScreen(vm)
                     }
                 }
                 SnackbarHost(
