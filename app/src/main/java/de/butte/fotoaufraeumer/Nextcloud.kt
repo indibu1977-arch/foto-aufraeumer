@@ -6,6 +6,9 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 
+/** Ziel im Wisch-Sortierer: Foto bleibt in der Galerie und wird an Nextcloud übergeben. */
+const val NEXTCLOUD_TARGET = "@nextcloud"
+
 private const val NEXTCLOUD_PKG = "com.nextcloud.client"
 
 /**

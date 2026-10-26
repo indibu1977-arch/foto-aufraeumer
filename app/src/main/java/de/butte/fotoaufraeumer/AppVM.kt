@@ -118,7 +118,11 @@ class AppVM(app: Application) : AndroidViewModel(app) {
     }
 
     fun targetName(path: String): String =
-        if (path == Vault.TARGET) "🔒 Privat" else MediaRepo.folderName(path)
+        when (path) {
+            Vault.TARGET -> "🔒 Privat"
+            NEXTCLOUD_TARGET -> "☁ Nextcloud"
+            else -> MediaRepo.folderName(path)
+        }
 
     // Auswahl für „Zwei Fotos vergleichen“ (bleibt beim Zurückkehren erhalten)
     var comparePick by mutableStateOf(listOf<Photo>())
@@ -394,7 +398,8 @@ class AppVM(app: Application) : AndroidViewModel(app) {
             val t0 = targets
             val all = q.filter { it.second != null && it.second != Dir.DOWN }
             val privat = all.filter { t0[it.second!!] == Vault.TARGET }.map { it.first }
-            val moves = all.filter { t0[it.second!!] != Vault.TARGET }
+            val cloud = all.filter { t0[it.second!!] == NEXTCLOUD_TARGET }.map { it.first }
+            val moves = all.filter { t0[it.second!!] != Vault.TARGET && t0[it.second!!] != NEXTCLOUD_TARGET }
             var trashed = 0
             var moved = 0
             var hidden = 0
@@ -436,6 +441,12 @@ class AppVM(app: Application) : AndroidViewModel(app) {
                 }
                 refreshVault()
             }
+            // Zuletzt: Nextcloud öffnen (verlässt die App, daher nach allen Android-Rückfragen)
+            var uploaded = 0
+            if (cloud.isNotEmpty()) {
+                if (uploadToNextcloud(ctx, cloud.map { it.uri })) uploaded = cloud.size
+                else notDone += cloud.map { it.id }
+            }
             for ((p, _) in q) if (p.id !in notDone) seen += p.id
             queue = emptyList()
             photos = withContext(Dispatchers.IO) { MediaRepo.loadAll(ctx) }
@@ -443,6 +454,7 @@ class AppVM(app: Application) : AndroidViewModel(app) {
             message = buildString {
                 append("Erledigt: $trashed gelöscht, $moved verschoben")
                 if (hidden > 0) append(", $hidden privat")
+                if (uploaded > 0) append(", $uploaded an Nextcloud")
                 if (failed > 0) append(", $failed fehlgeschlagen")
                 if (notDone.isNotEmpty()) append(", ${notDone.size} abgebrochen")
             }

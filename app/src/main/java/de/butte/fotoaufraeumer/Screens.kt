@@ -626,6 +626,7 @@ fun SettingsScreen(vm: AppVM) {
                             when (t) {
                                 null -> "nicht belegt – antippen"
                                 Vault.TARGET -> "🔒 Privater Ordner (nur in dieser App sichtbar)"
+                                NEXTCLOUD_TARGET -> "☁ In Nextcloud hochladen (Foto bleibt in der Galerie)"
                                 else -> "${MediaRepo.folderName(t)}  ($t)"
                             }
                         )
@@ -698,6 +699,13 @@ fun FolderDialog(vm: AppVM, d: Dir, onDismiss: () -> Unit) {
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("🔒 Privater Ordner (nur ich)") }
+                FilledTonalButton(
+                    onClick = {
+                        vm.setTarget(d, NEXTCLOUD_TARGET)
+                        onDismiss()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("☁ In Nextcloud hochladen") }
                 Spacer(Modifier.height(8.dp))
                 TextButton(
                     enabled = newName.isNotBlank(),
