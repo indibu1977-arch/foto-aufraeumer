@@ -66,12 +66,21 @@ fun GalleryScreen(vm: AppVM) {
     var askLeave by remember { mutableStateOf(false) }
     val marks = vm.galleryMarks
     val markSet = remember(marks) { marks.toSet() }
+    val ctx = LocalContext.current
+    var upMode by remember { mutableStateOf(false) }
+    val upSel = remember { mutableStateListOf<Long>() }
+    val upSet = upSel.toSet()
 
     fun leave() { if (marks.isNotEmpty()) askLeave = true else vm.back() }
+    fun toggleUp(id: Long) { if (id in upSel) upSel.remove(id) else upSel.add(id) }
+    fun upload(uris: List<android.net.Uri>) {
+        if (!uploadToNextcloud(ctx, uris)) vm.message = "Nextcloud-App nicht gefunden"
+    }
 
     BackHandler(enabled = marks.isNotEmpty()) { askLeave = true }
     // Später registriert = hat Vorrang: in der großen Ansicht führt „Zurück“ erst ins Raster
     BackHandler(enabled = mode != GalleryMode.GRID) { mode = GalleryMode.GRID }
+    BackHandler(enabled = upMode) { upMode = false; upSel.clear() }
 
     Scaffold(
         topBar = {
@@ -82,13 +91,31 @@ fun GalleryScreen(vm: AppVM) {
                         Text("${photos.size} Fotos", style = MaterialTheme.typography.bodySmall)
                     }
                 },
-                navigationIcon = { BackButton { leave() } },
+                navigationIcon = { BackButton { if (upMode) { upMode = false; upSel.clear() } else leave() } },
+                actions = {
+                    TextButton(onClick = {
+                        if (upMode) { upMode = false; upSel.clear() }
+                        else { upMode = true; mode = GalleryMode.GRID }
+                    }) { Text(if (upMode) "Fertig" else "☁ Hochladen", maxLines = 1) }
+                },
             )
         },
-        bottomBar = { if (marks.isNotEmpty()) MarkBar(vm, marks.size) },
+        bottomBar = {
+            if (upMode) UploadBar(
+                count = upSel.size,
+                onClear = { upSel.clear() },
+                onUpload = {
+                    val byId = photos.associateBy { it.id }
+                    upload(upSel.mapNotNull { byId[it]?.uri })
+                    upMode = false
+                    upSel.clear()
+                },
+            )
+            else if (marks.isNotEmpty()) MarkBar(vm, marks.size)
+        },
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            SingleChoiceSegmentedButtonRow(
+            if (!upMode) SingleChoiceSegmentedButtonRow(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
             ) {
                 GalleryMode.entries.forEachIndexed { i, m ->
@@ -101,7 +128,8 @@ fun GalleryScreen(vm: AppVM) {
                 }
             }
             Text(
-                if (mode == GalleryMode.GRID) "Antippen = groß ansehen · lange drücken = zum Löschen markieren"
+                if (upMode) "☁ Fotos antippen = für Nextcloud auswählen"
+                else if (mode == GalleryMode.GRID) "Antippen = groß ansehen · lange drücken = zum Löschen markieren"
                 else "⬅ ➡ weiter · ⬇ nach unten wischen = zum Löschen markieren",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -114,7 +142,7 @@ fun GalleryScreen(vm: AppVM) {
                 } else {
                     key(mode) {
                         if (mode == GalleryMode.GRID) {
-                            GalleryGrid(vm, photos, markSet) { i ->
+                            GalleryGrid(vm, photos, markSet, if (upMode) upSet else null, ::toggleUp) { i ->
                                 vm.galleryIndex = i
                                 mode = GalleryMode.ONE
                             }
@@ -142,7 +170,7 @@ fun GalleryScreen(vm: AppVM) {
         }
     }
 
-    zoom?.let { ZoomDialog(it) { zoom = null } }
+    zoom?.let { z -> ZoomDialog(z, onUpload = { upload(listOf(z.uri)) }) { zoom = null } }
 
     if (askLeave) {
         AlertDialog(
@@ -201,10 +229,42 @@ private fun MarkBar(vm: AppVM, count: Int) {
     }
 }
 
+@Composable
+private fun UploadBar(count: Int, onClear: () -> Unit, onUpload: () -> Unit) {
+    Surface(tonalElevation = 3.dp, shadowElevation = 6.dp) {
+        Row(
+            Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                "$count ausgewählt",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.weight(1f).padding(start = 8.dp),
+                maxLines = 1,
+            )
+            TextButton(onClick = onClear, enabled = count > 0) { Text("Aufheben", maxLines = 1) }
+            Button(
+                onClick = onUpload,
+                enabled = count > 0,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0), contentColor = Color.White),
+                contentPadding = PaddingValues(horizontal = 14.dp),
+            ) { Text("☁ In Nextcloud", maxLines = 1) }
+        }
+    }
+}
+
 // ---------- Raster ----------
 
 @Composable
-private fun GalleryGrid(vm: AppVM, photos: List<Photo>, markSet: Set<Long>, onOpen: (Int) -> Unit) {
+private fun GalleryGrid(
+    vm: AppVM,
+    photos: List<Photo>,
+    markSet: Set<Long>,
+    upSet: Set<Long>?,
+    onUpToggle: (Long) -> Unit,
+    onOpen: (Int) -> Unit,
+) {
     val scope = rememberCoroutineScope()
     val state = rememberLazyGridState(
         initialFirstVisibleItemIndex = vm.galleryIndex.coerceIn(0, max(0, photos.size - 1))
@@ -227,8 +287,15 @@ private fun GalleryGrid(vm: AppVM, photos: List<Photo>, markSet: Set<Long>, onOp
                     selected = p.id in markSet,
                     label = null,
                     modifier = Modifier.aspectRatio(1f),
-                    onClick = { if (p.id in markSet) vm.unmark(p.id) else onOpen(i) },
-                    onLongClick = { vm.toggleMark(p.id) },
+                    onClick = {
+                        when {
+                            upSet != null -> onUpToggle(p.id)
+                            p.id in markSet -> vm.unmark(p.id)
+                            else -> onOpen(i)
+                        }
+                    },
+                    onLongClick = { if (upSet != null) onUpToggle(p.id) else vm.toggleMark(p.id) },
+                    cloud = upSet != null && p.id in upSet,
                 )
             }
         }
@@ -466,7 +533,7 @@ internal fun BoxScope.FastScroller(
 // ---------- Vollbild mit Zoom ----------
 
 @Composable
-private fun ZoomDialog(p: Photo, onDismiss: () -> Unit) {
+private fun ZoomDialog(p: Photo, onUpload: () -> Unit, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     var scale by remember { mutableFloatStateOf(1f) }
     var off by remember { mutableStateOf(Offset.Zero) }
@@ -517,18 +584,27 @@ private fun ZoomDialog(p: Photo, onDismiss: () -> Unit) {
                     .statusBarsPadding()
                     .padding(10.dp),
             )
-            Text(
-                "Zwei Finger = zoomen · Doppeltipp = 2,5× · Tippen = schließen",
-                color = Color.White,
-                fontSize = 11.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
+            Column(
+                Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .background(Color(0x88000000))
                     .navigationBarsPadding()
                     .padding(8.dp),
-            )
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Button(
+                    onClick = onUpload,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0), contentColor = Color.White),
+                ) { Text("☁ In Nextcloud hochladen") }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Zwei Finger = zoomen · Doppeltipp = 2,5× · Tippen = schließen",
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    textAlign = TextAlign.Center,
+                )
+            }
         }
     }
 }

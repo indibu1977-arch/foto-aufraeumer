@@ -49,6 +49,7 @@ fun Thumb(
     modifier: Modifier = Modifier.size(112.dp),
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    cloud: Boolean = false,
 ) {
     Box(
         modifier
@@ -69,6 +70,15 @@ fun Thumb(
                 contentDescription = "Ausgewählt",
                 tint = Color.White,
                 modifier = Modifier.align(Alignment.Center).size(36.dp),
+            )
+        }
+        if (cloud) {
+            Box(Modifier.fillMaxSize().background(Color(0x991565C0)))
+            Text(
+                "☁",
+                color = Color.White,
+                fontSize = 34.sp,
+                modifier = Modifier.align(Alignment.Center),
             )
         }
         if (label != null) {

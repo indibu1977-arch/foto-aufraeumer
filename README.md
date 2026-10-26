@@ -8,6 +8,7 @@ Android-App zum Aufräumen der Galerie – läuft komplett offline auf dem Handy
 - **Qualität prüfen**: unscharf, zu dunkel, überbelichtet
 - **Wisch-Sortierer**: nach unten = löschen, links/oben/rechts = frei wählbare Ordner, mit Rückgängig; Knopf „▦ Galerie“ zeigt alle Fotos im Raster mit Schnellscroll – antippen und ab dort weiter wischen
 - **Galerie**: alle Fotos durchscrollen – Raster, 2 Bilder oder 1 Bild pro Bildschirm, Schnellscroll-Leiste mit Monatsanzeige; nach unten wischen bzw. lange drücken = zum Löschen markieren, alle markierten auf einmal löschen
+- **Nextcloud-Upload**: in der Galerie oben „☁ Hochladen“ → Fotos antippen → „☁ In Nextcloud“; einzelnes Foto auch in der Vollbildansicht. Zielordner wählt man in der Nextcloud-App
 - **Verbessern**: Automatisch, Helligkeit, Kontrast, Farbkraft, Wärme, Schärfe – speichert als Kopie
 
 Gelöschte Fotos landen im Papierkorb (30 Tage wiederherstellbar).
