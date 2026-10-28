@@ -119,6 +119,7 @@ fun App(vm: AppVM) {
                         Screen.PickCompare -> PickCompareScreen(vm)
                         Screen.Gallery -> GalleryScreen(vm)
                         Screen.FindSame -> FindSameScreen(vm)
+                        Screen.Camera -> CameraScreen(vm)
                         is Screen.SimilarTo -> SimilarToScreen(vm, s.photo)
                     }
                 }

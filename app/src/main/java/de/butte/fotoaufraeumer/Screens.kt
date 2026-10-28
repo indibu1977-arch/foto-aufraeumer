@@ -76,6 +76,9 @@ fun HomeScreen(vm: AppVM) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("${vm.photos.size} Fotos auf dem Handy", style = MaterialTheme.typography.bodyLarge)
+            BigCard("📸  Kamera-Assistent", "Erkennt Nacht, Gegenlicht, Dämmerung, Bewegung, Gesichter … und stellt die Kamera automatisch optimal ein") {
+                vm.go(Screen.Camera)
+            }
             BigCard("🔍  Fotos durchsuchen", "Doppelte, ähnliche und schlechte Fotos finden und löschen") {
                 vm.go(Screen.Scan)
                 if (!vm.scanDone && !vm.scanning) vm.startScan()

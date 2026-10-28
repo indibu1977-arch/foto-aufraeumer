@@ -42,6 +42,7 @@ sealed interface Screen {
     data object PickCompare : Screen
     data object Gallery : Screen
     data object FindSame : Screen
+    data object Camera : Screen
     data class SimilarTo(val photo: Photo) : Screen
 }
 
