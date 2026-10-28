@@ -87,7 +87,7 @@ fun HomeScreen(vm: AppVM) {
                 vm.go(Screen.Gallery)
             }
             val edited = remember(vm.photos) { vm.photos.count { isEdited(it) } }
-            BigCard("🆚  Fotos vergleichen", "Bearbeitete ($edited) oder zwei beliebige Fotos – mit Schieber und Qualitätswerten") {
+            BigCard("🆚  Fotos vergleichen", "Gleiche & ähnliche suchen, Bearbeitete ($edited) oder zwei beliebige Fotos – mit Schieber und Qualitätswerten") {
                 vm.go(Screen.Edited)
             }
             BigCard("🔒  Privater Ordner", "Fotos, die nur du in dieser App siehst – mit PIN geschützt") {
@@ -250,6 +250,7 @@ fun GroupList(
     info: String,
     keepSharpest: Boolean,
     onPreview: (Photo) -> Unit,
+    onCompare: ((Photo, Photo) -> Unit)? = null,
 ) {
     LazyColumn(
         contentPadding = PaddingValues(12.dp),
@@ -274,6 +275,7 @@ fun GroupList(
             }
         }
         items(groups, key = { g -> "g" + g.first().id }) { g ->
+            val best = remember(g) { if (keepSharpest) vm.bestOf(g) else g.first() }
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -282,6 +284,9 @@ fun GroupList(
                             style = MaterialTheme.typography.labelLarge,
                             modifier = Modifier.weight(1f),
                         )
+                        if (onCompare != null) {
+                            TextButton(onClick = { onCompare(best, g.first { it.id != best.id }) }) { Text("🆚") }
+                        }
                         TextButton(onClick = { vm.autoSelect(listOf(g), keepSharpest) }) { Text("Beste behalten") }
                     }
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -289,7 +294,7 @@ fun GroupList(
                             Thumb(
                                 p = p,
                                 selected = p.id in vm.selection,
-                                label = "${p.width}×${p.height}\n${sizeStr(p.size)}",
+                                label = (if (p.id == best.id) "★ Vorschlag behalten\n" else "") + "${p.width}×${p.height} · ${sizeStr(p.size)}",
                                 onClick = { vm.toggle(p.id) },
                                 onLongClick = { onPreview(p) },
                             )

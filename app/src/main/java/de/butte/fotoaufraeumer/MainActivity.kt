@@ -118,6 +118,8 @@ fun App(vm: AppVM) {
                         is Screen.Compare -> CompareScreen(vm, s.before, s.after, s.free)
                         Screen.PickCompare -> PickCompareScreen(vm)
                         Screen.Gallery -> GalleryScreen(vm)
+                        Screen.FindSame -> FindSameScreen(vm)
+                        is Screen.SimilarTo -> SimilarToScreen(vm, s.photo)
                     }
                 }
                 SnackbarHost(

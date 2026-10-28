@@ -346,7 +346,12 @@ fun EditedListScreen(vm: AppVM) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             item {
-                Button(onClick = { vm.go(Screen.PickCompare) }, modifier = Modifier.fillMaxWidth()) {
+                Button(onClick = { vm.go(Screen.FindSame) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("🔎 Gleiche & ähnliche Fotos suchen")
+                }
+            }
+            item {
+                OutlinedButton(onClick = { vm.go(Screen.PickCompare) }, modifier = Modifier.fillMaxWidth()) {
                     Text("📷 Zwei Fotos selbst auswählen")
                 }
             }
@@ -435,6 +440,9 @@ fun CompareScreen(vm: AppVM, before: Photo, after: Photo, free: Boolean = false)
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = { vm.go(Screen.SimilarTo(before)) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("🔎 Alle gleichen & ähnlichen zu $la suchen", maxLines = 1)
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { ask = before }, modifier = Modifier.weight(1f)) { Text(if (free) "A löschen" else "Original löschen", maxLines = 1) }
                     OutlinedButton(onClick = { ask = after }, modifier = Modifier.weight(1f)) { Text(if (free) "B löschen" else "Bearbeitung löschen", maxLines = 1) }

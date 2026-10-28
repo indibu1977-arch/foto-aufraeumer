@@ -41,7 +41,12 @@ sealed interface Screen {
     data class Compare(val before: Photo, val after: Photo, val free: Boolean = false) : Screen
     data object PickCompare : Screen
     data object Gallery : Screen
+    data object FindSame : Screen
+    data class SimilarTo(val photo: Photo) : Screen
 }
+
+/** Treffer bei „Ähnliche zu diesem Foto“. dist = Bit-Abstand des Fingerabdrucks (0 = gleich). */
+data class Match(val photo: Photo, val dist: Int, val identical: Boolean)
 
 class IntentReq(val sender: IntentSender, val result: CompletableDeferred<Boolean>)
 
@@ -248,13 +253,39 @@ class AppVM(app: Application) : AndroidViewModel(app) {
 
     fun selectAll(ids: List<Long>) { selection = selection + ids }
 
+    /** Bestes Foto einer Gruppe: am schärfsten, dann höchste Auflösung, dann größte Datei. */
+    fun bestOf(g: List<Photo>): Photo =
+        g.maxWith(compareBy<Photo>({ features[it.id]?.blur ?: 0f }, { it.width.toLong() * it.height }, { it.size }))
+
+    /** Alle Fotos, die einem Ausgangsfoto gleichen oder ähneln – sortiert nach Ähnlichkeit. */
+    suspend fun similarTo(ref: Photo, maxDist: Int): List<Match> = withContext(Dispatchers.IO) {
+        val f = features[ref.id] ?: Analyzer.analyze(ctx, ref) ?: return@withContext emptyList<Match>()
+        val all = photos
+        val refMd5 by lazy { MediaRepo.md5(ctx, ref.uri) }
+        val out = ArrayList<Match>()
+        for (p in all) {
+            if (p.id == ref.id) continue
+            val pf = features[p.id] ?: continue
+            val d = java.lang.Long.bitCount(f.dhash xor pf.dhash)
+            if (d > maxDist) continue
+            val ident = d == 0 && p.size == ref.size && p.size > 0 && MediaRepo.md5(ctx, p.uri) == refMd5
+            out += Match(p, d, ident)
+        }
+        out.sortedWith(compareBy<Match>({ !it.identical }, { it.dist }, { -it.photo.dateTaken }))
+    }
+
+    /** Vorschlag wie beim Aussortieren: alles außer dem besten Foto zum Löschen auswählen. */
+    fun suggestDelete(group: List<Photo>) {
+        if (group.size < 2) return
+        val keep = bestOf(group)
+        selection = (selection + group.map { it.id }) - keep.id
+    }
+
     /** In jeder Gruppe das beste Foto behalten, den Rest auswählen. */
     fun autoSelect(groups: List<List<Photo>>, keepSharpest: Boolean) {
         val sel = selection.toMutableSet()
         for (g in groups) {
-            val keep = if (keepSharpest) {
-                g.maxWith(compareBy<Photo>({ features[it.id]?.blur ?: 0f }, { it.width.toLong() * it.height }))
-            } else g.first()
+            val keep = if (keepSharpest) bestOf(g) else g.first()
             for (p in g) if (p.id == keep.id) sel -= p.id else sel += p.id
         }
         selection = sel
@@ -495,7 +526,7 @@ class AppVM(app: Application) : AndroidViewModel(app) {
             val uri = withContext(Dispatchers.Default) {
                 try {
                     val full = Enhancer.decode(ctx, p.uri, 4096)
-                    val out = Enhancer.apply(full, a)
+                    val out = Enhancer.applyFull(full, a)
                     full.recycle()
                     val u = MediaRepo.saveCopy(ctx, out, p)
                     out.recycle()
@@ -510,7 +541,7 @@ class AppVM(app: Application) : AndroidViewModel(app) {
             } else {
                 savedFor = p.id
                 savedCopyId = try { android.content.ContentUris.parseId(uri) } catch (e: Exception) { null }
-                message = "Als Kopie gespeichert (…_verbessert.jpg)"
+                message = if (a.upscale > 1) "Hochskaliert als Kopie gespeichert (…_verbessert.jpg)" else "Als Kopie gespeichert (…_verbessert.jpg)"
                 photos = withContext(Dispatchers.IO) { MediaRepo.loadAll(ctx) }
             }
         }

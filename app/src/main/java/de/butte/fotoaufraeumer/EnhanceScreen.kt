@@ -60,7 +60,8 @@ fun EnhanceScreen(vm: AppVM, photo: Photo) {
         mAfter = withContext(Dispatchers.Default) { Quality.measure(p) }
     }
 
-    val changed = adj != Adjust()
+    val changed = adj.copy(upscale = 1) != Adjust()
+    val canSave = adj != Adjust()
     val current = if (changed) mAfter else mBefore
     val suggestions = remember(current, adj, levels) { current?.let { Quality.suggest(it, adj, levels) } ?: emptyList() }
 
@@ -83,7 +84,7 @@ fun EnhanceScreen(vm: AppVM, photo: Photo) {
                 actions = {
                     TextButton(
                         onClick = { vm.saveEnhanced(photo, adj) },
-                        enabled = !vm.saving && original != null && changed,
+                        enabled = !vm.saving && original != null && canSave,
                     ) { Text("Speichern") }
                 },
             )
@@ -110,7 +111,14 @@ fun EnhanceScreen(vm: AppVM, photo: Photo) {
                     ) {
                         CircularProgressIndicator()
                         Spacer(Modifier.height(8.dp))
-                        Text(if (optimizing) "Teste Einstellungen …" else "Speichere in voller Größe …", color = Color.White)
+                        Text(
+                            when {
+                                optimizing -> "Teste Einstellungen …"
+                                adj.upscale > 1 -> "Skaliere hoch & speichere … (kann etwas dauern)"
+                                else -> "Speichere in voller Größe …"
+                            },
+                            color = Color.White,
+                        )
                     }
                 }
             }
@@ -145,7 +153,7 @@ fun EnhanceScreen(vm: AppVM, photo: Photo) {
                 if (tab == 0) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { optimize() }, enabled = original != null && !optimizing) { Text("✨ Automatisch") }
-                        OutlinedButton(onClick = { adj = Adjust() }, enabled = changed) { Text("Zurücksetzen") }
+                        OutlinedButton(onClick = { adj = Adjust() }, enabled = canSave) { Text("Zurücksetzen") }
                     }
                     Slide("Helligkeit", adj.brightness, -1f..1f) { adj = adj.copy(brightness = it) }
                     Slide("Kontrast", adj.contrast, -1f..1f) { adj = adj.copy(contrast = it) }
@@ -153,6 +161,27 @@ fun EnhanceScreen(vm: AppVM, photo: Photo) {
                     Slide("Wärme", adj.warmth, -1f..1f) { adj = adj.copy(warmth = it) }
                     Slide("Schärfe", adj.sharpen, 0f..1f) { adj = adj.copy(sharpen = it) }
                     Slide("Entrauschen", adj.denoise, 0f..1f) { adj = adj.copy(denoise = it) }
+                    Slide("Details / Klarheit", adj.detail, 0f..1f) { adj = adj.copy(detail = it) }
+                    Spacer(Modifier.height(4.dp))
+                    Text("Hochskalieren (beim Speichern)", style = MaterialTheme.typography.bodyMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        for ((f, l) in listOf(1 to "Aus", 2 to "2×", 3 to "3×")) {
+                            FilterChip(selected = adj.upscale == f, onClick = { adj = adj.copy(upscale = f) }, label = { Text(l) })
+                        }
+                    }
+                    if (adj.upscale > 1 && photo.width > 0 && photo.height > 0) {
+                        val sw = minOf(photo.width, (photo.width * 4096f / maxOf(photo.width, photo.height)).roundToInt())
+                        val sh = minOf(photo.height, (photo.height * 4096f / maxOf(photo.width, photo.height)).roundToInt())
+                        val f = Enhancer.upscaleFactor(sw, sh, adj.upscale)
+                        val ow = (sw * f).roundToInt()
+                        val oh = (sh * f).roundToInt()
+                        Text(
+                            "${photo.width}×${photo.height} → ${ow}×${oh} (${(ow.toLong() * oh / 100_000) / 10.0} MP)" +
+                                (if (f < adj.upscale - 0.05f) " · begrenzt wegen Speicher" else "") +
+                                "\nDetails und Schärfe werden nach dem Vergrößern automatisch nachgezogen.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                     if (adj.lo > 0f || adj.hi < 255f) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
