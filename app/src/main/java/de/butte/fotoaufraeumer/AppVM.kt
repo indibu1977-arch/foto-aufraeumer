@@ -117,6 +117,23 @@ class AppVM(app: Application) : AndroidViewModel(app) {
         targets = targets + (d to path)
     }
 
+    var owner by mutableStateOf(
+        sp.getString("owner", null)?.let { n -> Owner.entries.firstOrNull { it.name == n } } ?: Owner.BEIDE
+    )
+        private set
+
+    fun updateOwner(o: Owner) {
+        sp.edit().putString("owner", o.name).apply()
+        owner = o
+    }
+
+    /** Die Platte des anderen ist auf diesem Handy abgeschaltet. */
+    fun isDisabled(path: String?): Boolean = when (path) {
+        PLATTE_DIRK -> owner == Owner.INES
+        PLATTE_INES -> owner == Owner.DIRK
+        else -> false
+    }
+
     fun dirLabel(d: Dir): String = when {
         d == Dir.DOWN -> "${d.arrow} Löschen"
         targets[d] != null -> "${d.arrow} ${targetName(targets[d]!!)}"
@@ -127,6 +144,8 @@ class AppVM(app: Application) : AndroidViewModel(app) {
         when (path) {
             Vault.TARGET -> "🔒 Privat"
             NEXTCLOUD_TARGET -> "☁ Nextcloud"
+            PLATTE_DIRK -> "💾 Platte Dirk"
+            PLATTE_INES -> "💾 Platte Ines"
             else -> MediaRepo.folderName(path)
         }
 
@@ -392,6 +411,10 @@ class AppVM(app: Application) : AndroidViewModel(app) {
         val p = swipeList.getOrNull(swipeIndex) ?: return false
         if (dir != null && dir != Dir.DOWN && targets[dir] == null) {
             message = "Richtung „${dir.label}“ hat noch keinen Ordner – in den Einstellungen festlegen"
+            return false
+        }
+        if (dir != null && isDisabled(targets[dir])) {
+            message = "${targetName(targets[dir]!!)} ist auf diesem Handy abgeschaltet"
             return false
         }
         // Nach einem Sprung zurück: alte Entscheidung für dieses Foto ersetzen

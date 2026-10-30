@@ -583,7 +583,7 @@ private fun SwipeCard(vm: AppVM, p: Photo) {
             textAlign = TextAlign.Center,
         )
         if (dir != null) {
-            val ok = dir == Dir.DOWN || vm.targets[dir] != null
+            val ok = dir == Dir.DOWN || (vm.targets[dir] != null && !vm.isDisabled(vm.targets[dir]))
             val bg = when {
                 !ok -> Color(0xDD616161)
                 dir == Dir.DOWN -> Color(0xDDC62828)
@@ -635,6 +635,8 @@ fun SettingsScreen(vm: AppVM) {
                                 null -> "nicht belegt – antippen"
                                 Vault.TARGET -> "🔒 Privater Ordner (nur in dieser App sichtbar)"
                                 NEXTCLOUD_TARGET -> "☁ In Nextcloud hochladen (Foto bleibt in der Galerie)"
+                                PLATTE_DIRK, PLATTE_INES ->
+                                    vm.targetName(t) + if (vm.isDisabled(t)) " – auf diesem Handy aus" else " – wird im WLAN hochgeladen"
                                 else -> "${MediaRepo.folderName(t)}  ($t)"
                             }
                         )
@@ -645,6 +647,31 @@ fun SettingsScreen(vm: AppVM) {
             ListItem(
                 headlineContent = { Text("${Dir.DOWN.arrow}  ${Dir.DOWN.label}") },
                 supportingContent = { Text("Löschen (Papierkorb, nach 30 Tagen endgültig weg)") },
+            )
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            Text(
+                "Festplatten am Home Assistant",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            Text(
+                "Wem gehört dieses Handy? Die Platte des anderen wird hier abgeschaltet.",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (o in Owner.entries) {
+                    FilterChip(
+                        selected = vm.owner == o,
+                        onClick = { vm.updateOwner(o) },
+                        label = { Text(o.label) },
+                    )
+                }
+            }
+            Text(
+                "Fotos landen erst im Ordner „Platte Dirk“ bzw. „Platte Ines“ auf dem Handy. Die Nextcloud-App lädt diesen Ordner im WLAN automatisch auf die Platte hoch.",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 16.dp),
             )
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
             Text(
@@ -714,6 +741,17 @@ fun FolderDialog(vm: AppVM, d: Dir, onDismiss: () -> Unit) {
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("☁ In Nextcloud hochladen") }
+                for (p in listOf(PLATTE_DIRK, PLATTE_INES)) {
+                    if (!vm.isDisabled(p)) {
+                        FilledTonalButton(
+                            onClick = {
+                                vm.setTarget(d, p)
+                                onDismiss()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(vm.targetName(p)) }
+                    }
+                }
                 Spacer(Modifier.height(8.dp))
                 TextButton(
                     enabled = newName.isNotBlank(),

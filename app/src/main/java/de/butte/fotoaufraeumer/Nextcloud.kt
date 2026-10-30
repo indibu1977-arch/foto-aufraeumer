@@ -9,6 +9,13 @@ import android.net.Uri
 /** Ziel im Wisch-Sortierer: Foto bleibt in der Galerie und wird an Nextcloud übergeben. */
 const val NEXTCLOUD_TARGET = "@nextcloud"
 
+/** Ordner auf dem Handy, die die Nextcloud-App automatisch auf die jeweilige Festplatte hochlädt. */
+const val PLATTE_DIRK = "Pictures/Platte Dirk/"
+const val PLATTE_INES = "Pictures/Platte Ines/"
+
+/** Wem gehört dieses Handy? Bestimmt, welche Platte im Wisch-Sortierer aktiv ist. */
+enum class Owner(val label: String) { DIRK("Dirk"), INES("Ines"), BEIDE("Beide") }
+
 private const val NEXTCLOUD_PKG = "com.nextcloud.client"
 
 /**
