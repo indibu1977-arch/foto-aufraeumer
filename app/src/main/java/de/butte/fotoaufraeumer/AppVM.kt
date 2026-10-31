@@ -134,6 +134,116 @@ class AppVM(app: Application) : AndroidViewModel(app) {
         else -> false
     }
 
+    // ---------- Nextcloud direkt (Ordner auf der Platte) ----------
+    var dav by mutableStateOf(Dav.load(app))
+        private set
+    var davDeleteAfter by mutableStateOf(sp.getBoolean("dav_delete_after", true))
+        private set
+    /** Fingerabdruck, den der Nutzer noch bestätigen muss. */
+    var davPendingPin by mutableStateOf<String?>(null)
+        private set
+    var davBusy by mutableStateOf(false)
+        private set
+    var davStatus by mutableStateOf<String?>(null)
+        private set
+
+    fun updateDavDeleteAfter(v: Boolean) {
+        sp.edit().putBoolean("dav_delete_after", v).apply()
+        davDeleteAfter = v
+    }
+
+    /** Zugangsdaten speichern und Verbindung prüfen. Bei neuem Zertifikat erst Rückfrage. */
+    fun connectDav(url: String, user: String, pass: String) {
+        viewModelScope.launch {
+            davBusy = true
+            davStatus = "Verbinde …"
+            try {
+                val fp = withContext(Dispatchers.IO) { Dav.fetchFingerprint(url) }
+                val keep = if (fp != null && fp == dav.pin) fp else null
+                dav = DavCfg(url.trim().trimEnd('/'), user.trim(), pass.trim(), keep)
+                Dav.save(ctx, dav)
+                if (fp != null && keep == null) {
+                    davPendingPin = fp
+                    davStatus = "Zertifikat bestätigen"
+                } else {
+                    testDav()
+                }
+            } catch (e: Exception) {
+                davStatus = "✗ Server nicht erreichbar: ${e.message}"
+            } finally {
+                davBusy = false
+            }
+        }
+    }
+
+    fun acceptPin(accept: Boolean) {
+        val fp = davPendingPin ?: return
+        davPendingPin = null
+        if (!accept) {
+            davStatus = "Zertifikat abgelehnt"
+            return
+        }
+        dav = dav.copy(pin = fp)
+        Dav.save(ctx, dav)
+        viewModelScope.launch { testDav() }
+    }
+
+    private suspend fun testDav() {
+        davBusy = true
+        try {
+            val n = withContext(Dispatchers.IO) { Dav.listFolders(dav, "/") }
+            davStatus = "✓ Verbunden – ${n.size} Ordner: ${n.take(5).joinToString(", ")}"
+        } catch (e: Exception) {
+            davStatus = "✗ ${e.message}"
+        } finally {
+            davBusy = false
+        }
+    }
+
+    // Ordner-Browser
+    var davPath by mutableStateOf("/")
+        private set
+    var davFolders by mutableStateOf<List<String>>(emptyList())
+        private set
+    var davError by mutableStateOf<String?>(null)
+        private set
+
+    fun davOpen(path: String) {
+        davPath = path
+        viewModelScope.launch {
+            davBusy = true
+            davError = null
+            try {
+                davFolders = withContext(Dispatchers.IO) { Dav.listFolders(dav, path) }
+            } catch (e: Exception) {
+                davFolders = emptyList()
+                davError = e.message ?: "Fehler"
+            } finally {
+                davBusy = false
+            }
+        }
+    }
+
+    fun davCreate(name: String) {
+        val n = name.trim().replace("/", "")
+        if (n.isEmpty()) return
+        val p = davPath.trimEnd('/') + "/" + n
+        viewModelScope.launch {
+            davBusy = true
+            try {
+                withContext(Dispatchers.IO) { Dav.mkdir(dav, p) }
+                davBusy = false
+                davOpen(p)
+            } catch (e: Exception) {
+                davError = e.message
+                davBusy = false
+            }
+        }
+    }
+
+    var uploadProgress by mutableStateOf<String?>(null)
+        private set
+
     fun dirLabel(d: Dir): String = when {
         d == Dir.DOWN -> "${d.arrow} Löschen"
         targets[d] != null -> "${d.arrow} ${targetName(targets[d]!!)}"
@@ -141,6 +251,7 @@ class AppVM(app: Application) : AndroidViewModel(app) {
     }
 
     fun targetName(path: String): String =
+        if (isDavTarget(path)) "💾 " + davPath(path).trim('/').ifEmpty { "Nextcloud" } else
         when (path) {
             Vault.TARGET -> "🔒 Privat"
             NEXTCLOUD_TARGET -> "☁ Nextcloud"
@@ -454,7 +565,11 @@ class AppVM(app: Application) : AndroidViewModel(app) {
             val all = q.filter { it.second != null && it.second != Dir.DOWN }
             val privat = all.filter { t0[it.second!!] == Vault.TARGET }.map { it.first }
             val cloud = all.filter { t0[it.second!!] == NEXTCLOUD_TARGET }.map { it.first }
-            val moves = all.filter { t0[it.second!!] != Vault.TARGET && t0[it.second!!] != NEXTCLOUD_TARGET }
+            val davItems = all.filter { isDavTarget(t0[it.second!!]) }.map { it.first to davPath(t0[it.second!!]!!) }
+            val moves = all.filter {
+                val t = t0[it.second!!]
+                t != Vault.TARGET && t != NEXTCLOUD_TARGET && !isDavTarget(t)
+            }
             var trashed = 0
             var moved = 0
             var hidden = 0
@@ -496,6 +611,33 @@ class AppVM(app: Application) : AndroidViewModel(app) {
                 }
                 refreshVault()
             }
+            // Direkt auf die Platte (Nextcloud/WebDAV) hochladen
+            var onDisk = 0
+            var davErr: String? = null
+            if (davItems.isNotEmpty()) {
+                val cfg = dav
+                val done = mutableListOf<Photo>()
+                var lastErr: String? = null
+                for ((i, pair) in davItems.withIndex()) {
+                    val (p, folder) = pair
+                    uploadProgress = "Lade hoch ${i + 1}/${davItems.size} → ${folder.trim('/')}"
+                    try {
+                        withContext(Dispatchers.IO) { Dav.upload(ctx, cfg, folder, p.name, p.uri, p.size) }
+                        done += p
+                    } catch (e: Exception) {
+                        lastErr = e.message
+                        failed++
+                        notDone += p.id
+                    }
+                }
+                uploadProgress = null
+                onDisk = done.size
+                davErr = lastErr
+                if (done.isNotEmpty() && davDeleteAfter) {
+                    // Erst NACH erfolgreichem Hochladen vom Handy entfernen (Papierkorb, 30 Tage)
+                    try { ask(MediaRepo.trashRequest(ctx, done.map { it.uri })) } catch (_: Exception) {}
+                }
+            }
             // Zuletzt: Nextcloud öffnen (verlässt die App, daher nach allen Android-Rückfragen)
             var uploaded = 0
             if (cloud.isNotEmpty()) {
@@ -510,6 +652,8 @@ class AppVM(app: Application) : AndroidViewModel(app) {
                 append("Erledigt: $trashed gelöscht, $moved verschoben")
                 if (hidden > 0) append(", $hidden privat")
                 if (uploaded > 0) append(", $uploaded an Nextcloud")
+                if (onDisk > 0) append(", $onDisk auf die Platte")
+                if (davErr != null) append(" – Hochladen: $davErr")
                 if (failed > 0) append(", $failed fehlgeschlagen")
                 if (notDone.isNotEmpty()) append(", ${notDone.size} abgebrochen")
             }

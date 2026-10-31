@@ -123,6 +123,18 @@ fun App(vm: AppVM) {
                         is Screen.SimilarTo -> SimilarToScreen(vm, s.photo)
                     }
                 }
+                vm.uploadProgress?.let { p ->
+                    Card(
+                        Modifier.align(Alignment.Center).padding(24.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                    ) {
+                        Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator()
+                            Spacer(Modifier.height(12.dp))
+                            Text(p, textAlign = TextAlign.Center)
+                        }
+                    }
+                }
                 SnackbarHost(
                     snack,
                     Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 72.dp)

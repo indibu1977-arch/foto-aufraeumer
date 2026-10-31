@@ -637,7 +637,8 @@ fun SettingsScreen(vm: AppVM) {
                                 NEXTCLOUD_TARGET -> "☁ In Nextcloud hochladen (Foto bleibt in der Galerie)"
                                 PLATTE_DIRK, PLATTE_INES ->
                                     vm.targetName(t) + if (vm.isDisabled(t)) " – auf diesem Handy aus" else " – wird im WLAN hochgeladen"
-                                else -> "${MediaRepo.folderName(t)}  ($t)"
+                                else -> if (isDavTarget(t)) vm.targetName(t) + " – direkt auf die Platte"
+                                else "${MediaRepo.folderName(t)}  ($t)"
                             }
                         )
                     },
@@ -648,6 +649,8 @@ fun SettingsScreen(vm: AppVM) {
                 headlineContent = { Text("${Dir.DOWN.arrow}  ${Dir.DOWN.label}") },
                 supportingContent = { Text("Löschen (Papierkorb, nach 30 Tagen endgültig weg)") },
             )
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            DavSettings(vm)
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
             Text(
                 "Festplatten am Home Assistant",
@@ -714,6 +717,15 @@ fun SettingsScreen(vm: AppVM) {
 @Composable
 fun FolderDialog(vm: AppVM, d: Dir, onDismiss: () -> Unit) {
     var newName by remember { mutableStateOf("") }
+    var davPick by remember { mutableStateOf(false) }
+    if (davPick) {
+        DavFolderDialog(vm, onPick = { path ->
+            vm.setTarget(d, DAV_PREFIX + path)
+            davPick = false
+            onDismiss()
+        }, onDismiss = { davPick = false })
+        return
+    }
     val albums = remember(vm.photos) { MediaRepo.albums(vm.photos) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -741,6 +753,10 @@ fun FolderDialog(vm: AppVM, d: Dir, onDismiss: () -> Unit) {
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("☁ In Nextcloud hochladen") }
+                Button(
+                    onClick = { davPick = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("💾 Ordner auf der Platte wählen …") }
                 for (p in listOf(PLATTE_DIRK, PLATTE_INES)) {
                     if (!vm.isDisabled(p)) {
                         FilledTonalButton(
@@ -790,5 +806,130 @@ fun FolderDialog(vm: AppVM, d: Dir, onDismiss: () -> Unit) {
                 onDismiss()
             }) { Text("Belegung entfernen") }
         },
+    )
+}
+
+
+// ======================= Nextcloud direkt =======================
+
+@Composable
+fun DavSettings(vm: AppVM) {
+    var url by remember { mutableStateOf(vm.dav.url) }
+    var user by remember { mutableStateOf(vm.dav.user) }
+    var pass by remember { mutableStateOf(vm.dav.pass) }
+    var show by remember { mutableStateOf(false) }
+    Column(Modifier.padding(horizontal = 16.dp)) {
+        Text("Direkt auf die Platte (Nextcloud)", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Fotos werden beim Wischen sofort in einen Ordner auf deiner Festplatte hochgeladen. " +
+                "Das App-Passwort erstellst du in Nextcloud unter Einstellungen → Sicherheit → „App-Passwort erstellen“.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(url, { url = it }, label = { Text("Server") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(user, { user = it }, label = { Text("Benutzername") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(
+            pass, { pass = it },
+            label = { Text("App-Passwort") },
+            singleLine = true,
+            visualTransformation = if (show) androidx.compose.ui.text.input.VisualTransformation.None
+            else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+            trailingIcon = { TextButton(onClick = { show = !show }) { Text(if (show) "verbergen" else "zeigen") } },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Button(
+                enabled = !vm.davBusy && url.isNotBlank() && user.isNotBlank() && pass.isNotBlank(),
+                onClick = { vm.connectDav(url, user, pass) },
+            ) { Text("Speichern & verbinden") }
+            if (vm.davBusy) {
+                Spacer(Modifier.width(12.dp))
+                CircularProgressIndicator(Modifier.size(24.dp))
+            }
+        }
+        vm.davStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp)) }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+            Checkbox(checked = vm.davDeleteAfter, onCheckedChange = { vm.updateDavDeleteAfter(it) })
+            Text("Nach dem Hochladen vom Handy löschen (Papierkorb, 30 Tage)", style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+    vm.davPendingPin?.let { fp ->
+        AlertDialog(
+            onDismissRequest = { vm.acceptPin(false) },
+            title = { Text("Zertifikat vertrauen?") },
+            text = {
+                Column {
+                    Text("Dein Server benutzt ein selbst ausgestelltes Zertifikat. Das ist bei Nextcloud zu Hause normal.")
+                    Spacer(Modifier.height(8.dp))
+                    Text("Nur bestätigen, wenn du gerade im eigenen WLAN bist. Ändert sich das Zertifikat später, verweigert die App die Verbindung.")
+                    Spacer(Modifier.height(8.dp))
+                    Text("SHA-256: $fp", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = { TextButton(onClick = { vm.acceptPin(true) }) { Text("Vertrauen") } },
+            dismissButton = { TextButton(onClick = { vm.acceptPin(false) }) { Text("Abbrechen") } },
+        )
+    }
+}
+
+@Composable
+fun DavFolderDialog(vm: AppVM, onPick: (String) -> Unit, onDismiss: () -> Unit) {
+    var newName by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) { if (vm.dav.ok) vm.davOpen("/") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Ordner auf der Platte") },
+        text = {
+            Column {
+                if (!vm.dav.ok || vm.dav.url.startsWith("https") && vm.dav.pin == null) {
+                    Text("Erst in den Einstellungen unter „Direkt auf die Platte“ Server, Benutzer und App-Passwort eintragen und verbinden.")
+                    return@Column
+                }
+                Text("📁 " + vm.davPath.trim('/').ifEmpty { "(Start)" }, style = MaterialTheme.typography.labelLarge)
+                vm.davError?.let { Text("✗ $it", color = MaterialTheme.colorScheme.error) }
+                if (vm.davBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                LazyColumn(Modifier.heightIn(max = 300.dp)) {
+                    if (vm.davPath.trim('/').isNotEmpty()) {
+                        item {
+                            Text(
+                                "⬆  eine Ebene höher",
+                                modifier = Modifier.fillMaxWidth().clickable {
+                                    vm.davOpen("/" + vm.davPath.trim('/').substringBeforeLast('/', ""))
+                                }.padding(vertical = 10.dp),
+                            )
+                        }
+                    }
+                    items(vm.davFolders, key = { it }) { f ->
+                        Text(
+                            "📁  $f",
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                vm.davOpen(vm.davPath.trimEnd('/') + "/" + f)
+                            }.padding(vertical = 10.dp),
+                        )
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        newName, { newName = it.replace("/", "") },
+                        label = { Text("Neuer Ordner hier") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        enabled = newName.isNotBlank() && !vm.davBusy,
+                        onClick = { vm.davCreate(newName); newName = "" },
+                    ) { Text("Anlegen") }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = vm.dav.ok && vm.davPath.trim('/').isNotEmpty() && !vm.davBusy,
+                onClick = { onPick(vm.davPath) },
+            ) { Text("Diesen Ordner wählen") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Abbrechen") } },
     )
 }
