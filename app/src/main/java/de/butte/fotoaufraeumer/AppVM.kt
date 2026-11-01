@@ -592,6 +592,27 @@ class AppVM(app: Application) : AndroidViewModel(app) {
         return true
     }
 
+    /** Viele Fotos auf einmal einer Richtung zuordnen (Mehrfachauswahl in der Galerie). dir == null = Behalten. */
+    fun swipeMany(ids: Set<Long>, dir: Dir?): Boolean {
+        if (ids.isEmpty()) return false
+        if (dir != null && dir != Dir.DOWN && targets[dir] == null) {
+            message = "Richtung „${dir.label}“ hat noch keinen Ordner – in den Einstellungen festlegen"
+            return false
+        }
+        if (dir != null && isDisabled(targets[dir])) {
+            message = "${targetName(targets[dir]!!)} ist auf diesem Handy abgeschaltet"
+            return false
+        }
+        val picked = swipeList.filter { it.id in ids }
+        queue = queue.filterNot { it.first.id in ids } + picked.map { p ->
+            if (dir != null && dir != Dir.DOWN && targets[dir] == p.relPath) p to null else p to dir
+        }
+        // Aktuelle Position hinter die erledigten Fotos schieben
+        while (swipeList.getOrNull(swipeIndex)?.id?.let { it in ids } == true) swipeIndex++
+        message = "${picked.size} Fotos → " + (if (dir == null) "behalten" else dirLabel(dir))
+        return true
+    }
+
     fun undo() {
         val last = queue.lastOrNull() ?: return
         queue = queue.dropLast(1)

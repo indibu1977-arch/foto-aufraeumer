@@ -7,6 +7,14 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalHapticFeedback
+import kotlin.math.abs
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
@@ -615,18 +623,81 @@ private fun ZoomDialog(p: Photo, onUpload: () -> Unit, onDismiss: () -> Unit) {
 
 // ======================= Galerie im Wisch-Sortierer =======================
 
-/** Übersicht aller Fotos des Wisch-Sortierers: schnell scrollen, Foto antippen = dort weitersortieren. */
+/**
+ * Übersicht aller Fotos des Wisch-Sortierers.
+ * - Antippen = ab dort weiter wischen
+ * - Lange drücken und ziehen = viele Fotos markieren (wie in der Google-Galerie).
+ *   Finger an den oberen/unteren Rand halten → scrollt mit, je näher am Rand desto schneller.
+ * - Markierte Fotos über die Leiste unten einer Richtung (Ordner/Löschen) zuordnen.
+ */
 @Composable
 fun SwipeJumpGrid(vm: AppVM, onPicked: () -> Unit) {
     val list = vm.swipeList
     val queued = remember(vm.queue) { vm.queue.associate { it.first.id to it.second } }
     val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
     val state = rememberLazyGridState(
         initialFirstVisibleItemIndex = vm.swipeIndex.coerceIn(0, max(0, list.size - 1))
     )
+
+    var sel by remember { mutableStateOf(setOf<Long>()) }
+    val selecting = sel.isNotEmpty()
+    BackHandler(enabled = selecting) { sel = emptySet() }
+
+    // Zustand der laufenden Zieh-Auswahl
+    var dragBase by remember { mutableStateOf(setOf<Long>()) }
+    var dragAnchor by remember { mutableIntStateOf(-1) }
+    var dragRemove by remember { mutableStateOf(false) }
+    var dragLast by remember { mutableIntStateOf(-1) }
+    var fingerY by remember { mutableFloatStateOf(-1f) }
+    var fingerX by remember { mutableFloatStateOf(0f) }
+    var viewH by remember { mutableIntStateOf(0) }
+    val edge = with(density) { 90.dp.toPx() }
+    val maxSpeed = with(density) { 22.dp.toPx() }
+
+    fun indexAt(x: Float, y: Float): Int? {
+        val info = state.layoutInfo.visibleItemsInfo
+        info.firstOrNull { x >= it.offset.x && x <= it.offset.x + it.size.width && y >= it.offset.y && y <= it.offset.y + it.size.height }
+            ?.let { return it.index }
+        // In der Lücke zwischen zwei Bildern: nächstes Bild in der Zeile
+        return info.filter { y >= it.offset.y - 4 && y <= it.offset.y + it.size.height + 4 }
+            .minByOrNull { abs(it.offset.x + it.size.width / 2f - x) }?.index
+    }
+
+    fun applyRange(to: Int) {
+        if (dragAnchor < 0 || to == dragLast) return
+        dragLast = to
+        val a = minOf(dragAnchor, to)
+        val b = maxOf(dragAnchor, to)
+        val range = (a..b).mapNotNull { list.getOrNull(it)?.id }.toSet()
+        sel = if (dragRemove) dragBase - range else dragBase + range
+    }
+
+    // Automatisch scrollen, solange der Finger am Rand liegt
+    val dragging = dragAnchor >= 0
+    LaunchedEffect(dragging) {
+        if (!dragging) return@LaunchedEffect
+        while (true) {
+            withFrameNanos { }
+            val y = fingerY
+            if (y < 0 || viewH == 0) continue
+            val speed = when {
+                y > viewH - edge -> maxSpeed * ((y - (viewH - edge)) / edge).coerceIn(0.05f, 1f)
+                y < edge -> -maxSpeed * ((edge - y) / edge).coerceIn(0.05f, 1f)
+                else -> 0f
+            }
+            if (speed != 0f) {
+                state.scrollBy(speed)
+                indexAt(fingerX, y.coerceIn(1f, viewH - 1f))?.let { applyRange(it) }
+            }
+        }
+    }
+
     Column(Modifier.fillMaxSize()) {
         Text(
-            "Foto antippen = ab dort weiter wischen. Übersprungene Fotos bleiben unverändert.",
+            if (selecting) "Antippen = an/abwählen · lange drücken + ziehen = viele markieren · Finger an den Rand = scrollt mit"
+            else "Antippen = ab dort weiter wischen · lange drücken + ziehen = viele auf einmal markieren",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
@@ -639,7 +710,47 @@ fun SwipeJumpGrid(vm: AppVM, onPicked: () -> Unit) {
                 contentPadding = PaddingValues(2.dp),
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .onSizeChanged { viewH = it.height }
+                    .pointerInput(list) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                            // Warten: langer Druck ohne Bewegung? Sonst normal scrollen / tippen lassen.
+                            val notLong = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                                while (true) {
+                                    val ev = awaitPointerEvent(PointerEventPass.Initial)
+                                    val c = ev.changes.firstOrNull { it.id == down.id } ?: return@withTimeoutOrNull true
+                                    if (!c.pressed) return@withTimeoutOrNull true
+                                    if ((c.position - down.position).getDistance() > viewConfiguration.touchSlop) return@withTimeoutOrNull true
+                                }
+                                true
+                            }
+                            if (notLong != null) return@awaitEachGesture
+                            val start = indexAt(down.position.x, down.position.y) ?: return@awaitEachGesture
+                            val startId = list.getOrNull(start)?.id ?: return@awaitEachGesture
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            dragBase = sel
+                            dragRemove = startId in sel
+                            dragLast = -1
+                            fingerX = down.position.x
+                            fingerY = down.position.y
+                            dragAnchor = start
+                            applyRange(start)
+                            // Ab jetzt gehört die Bewegung uns: kein Scrollen, kein Antippen
+                            while (true) {
+                                val ev = awaitPointerEvent(PointerEventPass.Initial)
+                                val c = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                ev.changes.forEach { it.consume() }
+                                if (!c.pressed) break
+                                fingerX = c.position.x
+                                fingerY = c.position.y
+                                indexAt(c.position.x, c.position.y)?.let { applyRange(it) }
+                            }
+                            dragAnchor = -1
+                            fingerY = -1f
+                        }
+                    },
             ) {
                 itemsIndexed(list, key = { _, p -> p.id }) { i, p ->
                     val done = p.id in queued
@@ -652,23 +763,25 @@ fun SwipeJumpGrid(vm: AppVM, onPicked: () -> Unit) {
                     }
                     Thumb(
                         p = p,
-                        selected = d == Dir.DOWN,
+                        selected = d == Dir.DOWN && p.id !in sel,
                         label = label,
                         modifier = Modifier
                             .aspectRatio(1f)
                             .then(
-                                if (i == vm.swipeIndex) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
+                                if (i == vm.swipeIndex && !selecting) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
                                 else Modifier
                             ),
                         onClick = {
-                            vm.jumpTo(i)
-                            onPicked()
+                            if (selecting) {
+                                sel = if (p.id in sel) sel - p.id else sel + p.id
+                            } else {
+                                vm.jumpTo(i)
+                                onPicked()
+                            }
                         },
-                        onLongClick = {
-                            vm.jumpTo(i)
-                            onPicked()
-                        },
+                        onLongClick = null, // langer Druck = Mehrfachauswahl (siehe pointerInput oben)
                         uploaded = vm.uploadedInfo(p) != null,
+                        checked = p.id in sel,
                     )
                 }
             }
@@ -678,6 +791,63 @@ fun SwipeJumpGrid(vm: AppVM, onPicked: () -> Unit) {
                 label = { monthOf(list.getOrNull(it)) },
                 onJump = { i -> scope.launch { state.scrollToItem(i) } },
             )
+        }
+        if (selecting) SelectBar(
+            vm = vm,
+            count = sel.size,
+            onAll = { sel = list.map { it.id }.toSet() },
+            onClear = { sel = emptySet() },
+            onAssign = { dir -> if (vm.swipeMany(sel, dir)) sel = emptySet() },
+        )
+    }
+}
+
+@Composable
+private fun SelectBar(
+    vm: AppVM,
+    count: Int,
+    onAll: () -> Unit,
+    onClear: () -> Unit,
+    onAssign: (Dir?) -> Unit,
+) {
+    Surface(tonalElevation = 3.dp, shadowElevation = 6.dp) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 6.dp, vertical = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "$count ausgewählt",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.weight(1f).padding(start = 8.dp),
+                    maxLines = 1,
+                )
+                TextButton(onClick = onAll) { Text("Alle", maxLines = 1) }
+                TextButton(onClick = { onAssign(null) }) { Text("Behalten", maxLines = 1) }
+                TextButton(onClick = onClear) { Text("Aufheben", maxLines = 1) }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                for (d in listOf(Dir.LEFT, Dir.UP, Dir.RIGHT, Dir.DOWN)) {
+                    val t = vm.targets[d]
+                    val ok = d == Dir.DOWN || (t != null && !vm.isDisabled(t))
+                    Button(
+                        onClick = { onAssign(d) },
+                        enabled = ok,
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                        colors = if (d == Dir.DOWN) ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError,
+                        ) else ButtonDefaults.buttonColors(),
+                    ) {
+                        Text(
+                            vm.dirLabel(d),
+                            fontSize = 11.sp,
+                            lineHeight = 13.sp,
+                            maxLines = 2,
+                            textAlign = TextAlign.Center,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
         }
     }
 }

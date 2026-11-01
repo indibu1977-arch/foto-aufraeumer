@@ -48,15 +48,19 @@ fun Thumb(
     label: String?,
     modifier: Modifier = Modifier.size(112.dp),
     onClick: () -> Unit,
-    onLongClick: () -> Unit,
+    onLongClick: (() -> Unit)?,
     cloud: Boolean = false,
     uploaded: Boolean = false,
+    checked: Boolean = false,
 ) {
     Box(
         modifier
             .clip(RoundedCornerShape(8.dp))
             .background(Color.DarkGray)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .then(
+                if (onLongClick != null) Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                else Modifier.clickable(onClick = onClick)
+            )
     ) {
         AsyncImage(
             model = p.uri,
@@ -80,6 +84,25 @@ fun Thumb(
                 color = Color.White,
                 fontSize = 34.sp,
                 modifier = Modifier.align(Alignment.Center),
+            )
+        }
+        if (checked) {
+            Box(
+                Modifier.fillMaxSize()
+                    .background(Color(0x661565C0))
+                    .border(3.dp, Color(0xFF42A5F5), RoundedCornerShape(8.dp))
+            )
+            Text(
+                "✓",
+                color = Color.White,
+                fontSize = 15.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(4.dp)
+                    .size(24.dp)
+                    .background(Color(0xFF1E88E5), androidx.compose.foundation.shape.CircleShape)
+                    .wrapContentSize(Alignment.Center),
             )
         }
         if (uploaded) {
