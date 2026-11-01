@@ -37,7 +37,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        AppState.foreground = true
         vm.onResume()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        AppState.foreground = false
     }
 
     override fun onStop() {
@@ -66,6 +72,13 @@ fun App(vm: AppVM) {
         LaunchedEffect(Unit) {
             if (ctx.checkSelfPermission(perm) == PackageManager.PERMISSION_GRANTED) vm.onPermission(true)
             else permLauncher.launch(perm)
+        }
+        // Benachrichtigungen für den Upload-Fortschritt (Android 13+), einmal nach der Foto-Erlaubnis fragen
+        val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+        LaunchedEffect(vm.hasPermission) {
+            if (vm.hasPermission && Build.VERSION.SDK_INT >= 33 &&
+                ctx.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
 
         val senderLauncher = rememberLauncherForActivityResult(

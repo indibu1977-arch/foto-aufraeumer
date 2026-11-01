@@ -602,9 +602,44 @@ class AppVM(app: Application) : AndroidViewModel(app) {
         back()
     }
 
+    /** Läuft im App-Bereich weiter, auch wenn der Bildschirm (ViewModel) geschlossen wird. */
+    @Volatile private var cleared = false
+    override fun onCleared() { cleared = true; super.onCleared() }
+
+    /** Android-Rückfragen (Löschen bestätigen) gehen nur, wenn die App sichtbar ist. */
+    private suspend fun waitForeground(text: String): Boolean {
+        if (cleared) return false
+        if (!AppState.foreground) UploadService.done(ctx, text)
+        while (!AppState.foreground) {
+            if (cleared) return false
+            delay(500)
+        }
+        return !cleared
+    }
+
+    /** Bei Netzproblemen (z. B. WLAN kurz weg) bis zu 6× neu versuchen. Server-Fehler nicht. */
+    private suspend fun <T> retry(label: String, block: suspend () -> T): T {
+        var wait = 3_000L
+        for (attempt in 1..6) {
+            try {
+                return block()
+            } catch (e: java.io.IOException) {
+                if (attempt == 6 || e is javax.net.ssl.SSLHandshakeException) throw e
+                uploadProgress = "$label\nVerbindung weg – neuer Versuch in ${wait / 1000} s"
+                delay(wait)
+                wait = minOf(wait * 2, 60_000L)
+            }
+        }
+        error("nicht erreichbar")
+    }
+
+    private var applying = false
+
     fun applySwipe(thenBack: Boolean = false) {
+        if (applying) { message = "Läuft noch …"; return }
+        applying = true
         val q = queue
-        viewModelScope.launch {
+        appScope.launch { try {
             val dels = q.filter { it.second == Dir.DOWN }.map { it.first }
             val t0 = targets
             val all = q.filter { it.second != null && it.second != Dir.DOWN }
@@ -664,48 +699,70 @@ class AppVM(app: Application) : AndroidViewModel(app) {
                 val cfg = dav
                 val done = mutableListOf<Photo>()
                 var lastErr: String? = null
+                UploadService.start(ctx, "Lade ${davItems.size} Fotos hoch …")
                 for ((i, pair) in davItems.withIndex()) {
                     val (p, folder) = pair
-                    uploadProgress = "Lade hoch ${i + 1}/${davItems.size} → ${folder.trim('/')}"
+                    val label = "Lade hoch ${i + 1}/${davItems.size} → ${folder.trim('/')}"
+                    uploadProgress = label
+                    UploadService.progress(ctx, label, i, davItems.size)
                     try {
                         val f = folder.trimEnd('/')
                         val known = uploadedInfo(p)
                         // Schon dort? Gleich große Datei (Name aus der Liste oder Originalname) auf der Platte
                         val sameFolder = known != null && known.folder.trimEnd('/') == f && known.remoteName.isNotEmpty()
                         val rName = if (sameFolder) known!!.remoteName else p.name
-                        val already = withContext(Dispatchers.IO) { Dav.remoteSize(cfg, "$f/$rName") } == p.size
+                        val already = retry(label) { withContext(Dispatchers.IO) { Dav.remoteSize(cfg, "$f/$rName") } } == p.size
                         if (already) {
                             skipped++
                             if (!sameFolder) markUploaded(p, f, rName)
                         } else {
-                            val n = withContext(Dispatchers.IO) { Dav.upload(ctx, cfg, folder, p.name, p.uri, p.size) }
+                            val n = retry(label) { withContext(Dispatchers.IO) { Dav.upload(ctx, cfg, folder, p.name, p.uri, p.size) } }
                             markUploaded(p, f, n)
                         }
                         done += p
                     } catch (e: Exception) {
-                        lastErr = e.message
+                        lastErr = e.message ?: e.javaClass.simpleName
                         failed++
                         notDone += p.id
+                        if (e is java.io.IOException) {
+                            // Platte nach mehreren Versuchen nicht erreichbar: Rest nicht einzeln probieren
+                            val rest = davItems.drop(i + 1).map { it.first }
+                            failed += rest.size
+                            notDone += rest.map { it.id }
+                            lastErr = "Platte nicht erreichbar (${lastErr}) – ${rest.size + 1} Fotos bleiben auf dem Handy"
+                            break
+                        }
                     }
                 }
                 uploadProgress = null
+                UploadService.stop(ctx)
                 onDisk = done.size
                 davErr = lastErr
                 if (done.isNotEmpty() && davDeleteAfter) {
-                    // Erst NACH erfolgreichem Hochladen vom Handy entfernen (Papierkorb, 30 Tage)
-                    try { ask(MediaRepo.trashRequest(ctx, done.map { it.uri })) } catch (_: Exception) {}
+                    // Erst NACH erfolgreichem Hochladen vom Handy entfernen (Papierkorb, 30 Tage).
+                    // Die Rückfrage geht nur bei sichtbarer App – sonst warten, bis du zurückkommst.
+                    val txt = "${done.size} Fotos sind auf der Platte. Antippen, um sie vom Handy zu löschen."
+                    if (waitForeground(txt)) {
+                        try { ask(MediaRepo.trashRequest(ctx, done.map { it.uri })) } catch (_: Exception) {}
+                    }
+                } else if (!AppState.foreground) {
+                    UploadService.done(ctx, "Fertig: ${done.size} von ${davItems.size} Fotos auf der Platte" +
+                        if (failed > 0) ", $failed fehlgeschlagen" else "")
                 }
             }
             // Zuletzt: Nextcloud öffnen (verlässt die App, daher nach allen Android-Rückfragen)
             var uploaded = 0
             if (cloud.isNotEmpty()) {
-                if (uploadToNextcloud(ctx, cloud.map { it.uri })) uploaded = cloud.size
+                if (waitForeground("Antippen, um die Fotos an Nextcloud zu geben.") &&
+                    uploadToNextcloud(ctx, cloud.map { it.uri })) uploaded = cloud.size
                 else notDone += cloud.map { it.id }
             }
             for ((p, _) in q) if (p.id !in notDone) seen += p.id
-            queue = emptyList()
+            // Während des Hochladens weiter gewischte Fotos bleiben vorgemerkt
+            val rest = queue.drop(q.size)
+            queue = rest
             photos = withContext(Dispatchers.IO) { MediaRepo.loadAll(ctx) }
-            buildSwipeList()
+            if (rest.isEmpty()) buildSwipeList()
             message = buildString {
                 append("Erledigt: $trashed gelöscht, $moved verschoben")
                 if (hidden > 0) append(", $hidden privat")
@@ -717,7 +774,11 @@ class AppVM(app: Application) : AndroidViewModel(app) {
                 if (notDone.isNotEmpty()) append(", ${notDone.size} abgebrochen")
             }
             if (thenBack) back()
-        }
+        } finally {
+            applying = false
+            uploadProgress = null
+            UploadService.stop(ctx)
+        } }
     }
 
     // ---------- Verbessern ----------
