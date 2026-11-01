@@ -53,7 +53,16 @@ import kotlinx.coroutines.withContext
 class PlatteState(private val vm: AppVM) {
     private val ctx get() = vm.getApplication<Application>()
 
-    var path by mutableStateOf("/")
+    private val sp get() = ctx.getSharedPreferences("prefs", android.content.Context.MODE_PRIVATE)
+
+    /** Ordner, in dem die Platte startet (Standard: „Dirk“ = die WD). */
+    var startFolder by mutableStateOf(
+        vm.getApplication<Application>().getSharedPreferences("prefs", android.content.Context.MODE_PRIVATE)
+            .getString("platte_start", "/Dirk") ?: "/Dirk"
+    )
+        private set
+
+    var path by mutableStateOf(startFolder)
         private set
     var entries by mutableStateOf(listOf<DavEntry>())
         private set
@@ -81,22 +90,40 @@ class PlatteState(private val vm: AppVM) {
 
     fun up() = open(path.trim('/').substringBeforeLast('/', ""))
 
+    /** Aktuellen Ordner als Startordner merken. */
+    fun pinStart() {
+        startFolder = path
+        sp.edit().putString("platte_start", path).apply()
+        vm.message = "Startordner: ${if (path == "/") "Hauptordner" else folderName}"
+    }
+
+    /** Hauptordner der Nextcloud liegt auf der SD-Karte des Pi, nicht auf der externen Platte. */
+    val isRoot: Boolean get() = path == "/"
+
     fun reload() {
         val cfg = vm.dav
         val want = path
         appScope.launch {
             loading = true
             error = null
+            var fallback = false
             try {
                 val list = withContext(Dispatchers.IO) { Dav.base(cfg); Dav.list(cfg, want) }
                 if (path == want) { entries = list; loaded = true }
             } catch (e: Exception) {
                 Dav.resetBase()
-                if (path == want) { entries = emptyList(); error = e.message ?: e.javaClass.simpleName }
+                if (!loaded && want == startFolder && want != "/" && e is DavException && e.message?.contains("nicht gefunden") == true) {
+                    // Startordner gibt es (noch) nicht – dann im Hauptordner beginnen
+                    fallback = path == want
+                } else if (path == want) {
+                    entries = emptyList()
+                    error = e.message ?: e.javaClass.simpleName
+                }
             } finally {
                 remote = Dav.usingRemote
                 loading = false
             }
+            if (fallback) open("/")
         }
     }
 
@@ -371,6 +398,7 @@ fun PlatteScreen(vm: AppVM) {
                     }
                 },
                 actions = {
+                    TextButton(onClick = { st.pinStart() }, enabled = vm.dav.ok && st.path != st.startFolder) { Text("📌", maxLines = 1) }
                     TextButton(onClick = { askFolder = true }, enabled = vm.dav.ok) { Text("＋ Ordner", maxLines = 1) }
                     TextButton(onClick = { Dav.resetBase(); st.reload() }, enabled = vm.dav.ok) { Text("⟳") }
                 },
@@ -436,6 +464,19 @@ fun PlatteScreen(vm: AppVM) {
                 }
             }
             if (st.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if (st.isRoot && st.entries.any { it.isDir && it.name == "Dirk" }) {
+                Card(
+                    onClick = { st.open("/Dirk") },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+                ) {
+                    Text(
+                        "Hauptordner = SD-Karte. Deine Festplatte ist der Ordner „Dirk“ – hier antippen.",
+                        Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
             st.error?.let { err ->
                 Column(Modifier.fillMaxWidth().padding(16.dp)) {
                     Text("✗ $err", color = MaterialTheme.colorScheme.error)
@@ -511,7 +552,20 @@ fun PlatteScreen(vm: AppVM) {
         AlertDialog(
             onDismissRequest = { askMove = null },
             title = { Text("${uris.size} Dateien nach „${st.folderName}“") },
-            text = { Text("Kopie: Die Dateien bleiben zusätzlich auf dem Handy.\nVerschieben: Nach erfolgreichem Hochladen werden sie auf dem Handy gelöscht.") },
+            text = {
+                Column {
+                    if (st.isRoot) {
+                        Text(
+                            "⚠ Das ist der Hauptordner – er liegt auf der SD-Karte des Home Assistant, nicht auf deiner Festplatte. " +
+                                "Für die WD vorher den Ordner „Dirk“ öffnen.",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    Text("Kopie: Die Dateien bleiben zusätzlich auf dem Handy.\nVerschieben: Nach erfolgreichem Hochladen werden sie auf dem Handy gelöscht.")
+                }
+            },
             confirmButton = {
                 TextButton(onClick = { askMove = null; st.upload(uris, move = true) }) { Text("Verschieben") }
             },
