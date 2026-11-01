@@ -582,6 +582,7 @@ private fun SwipeCard(vm: AppVM, p: Photo) {
                 .padding(6.dp),
             textAlign = TextAlign.Center,
         )
+        UploadedBadge(vm.uploadedInfo(p))
         if (dir != null) {
             val ok = dir == Dir.DOWN || (vm.targets[dir] != null && !vm.isDisabled(vm.targets[dir]))
             val bg = when {
@@ -853,6 +854,51 @@ fun DavSettings(vm: AppVM) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
             Checkbox(checked = vm.davDeleteAfter, onCheckedChange = { vm.updateDavDeleteAfter(it) })
             Text("Nach dem Hochladen vom Handy löschen (Papierkorb, 30 Tage)", style = MaterialTheme.typography.bodyMedium)
+        }
+        Text(
+            if (vm.davDeleteAfter) "Aus = nur eine Kopie hochladen, das Foto bleibt auf dem Handy."
+            else "Nur Kopie: Das Foto bleibt auf dem Handy und bekommt das Zeichen ☁✓.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 48.dp),
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = vm.hideUploaded, onCheckedChange = { vm.updateHideUploaded(it) })
+            Text("Schon hochgeladene im Sortierer ausblenden", style = MaterialTheme.typography.bodyMedium)
+        }
+        val onPhone = vm.uploadedOnPhone.size
+        var askTrash by remember { mutableStateOf(false) }
+        var askClear by remember { mutableStateOf(false) }
+        Text(
+            "Schon auf der Platte: ${vm.uploads.size} Fotos · davon noch auf dem Handy: $onPhone",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+            OutlinedButton(enabled = onPhone > 0, onClick = { askTrash = true }) {
+                Text("$onPhone vom Handy löschen", maxLines = 1)
+            }
+            TextButton(enabled = vm.uploads.isNotEmpty(), onClick = { askClear = true }) {
+                Text("Liste leeren", maxLines = 1)
+            }
+        }
+        if (askTrash) {
+            AlertDialog(
+                onDismissRequest = { askTrash = false },
+                title = { Text("Hochgeladene vom Handy löschen?") },
+                text = { Text("$onPhone Fotos liegen schon auf der Platte. Sie kommen auf dem Handy in den Papierkorb (30 Tage wiederherstellbar). Auf der Platte bleiben sie.") },
+                confirmButton = { TextButton(onClick = { askTrash = false; vm.trashUploaded() }) { Text("Löschen") } },
+                dismissButton = { TextButton(onClick = { askTrash = false }) { Text("Abbrechen") } },
+            )
+        }
+        if (askClear) {
+            AlertDialog(
+                onDismissRequest = { askClear = false },
+                title = { Text("Upload-Liste leeren?") },
+                text = { Text("Die ☁✓-Zeichen verschwinden. Fotos auf Handy und Platte bleiben unverändert. Beim nächsten Hochladen wird trotzdem geprüft, ob die Datei schon auf der Platte liegt.") },
+                confirmButton = { TextButton(onClick = { askClear = false; vm.clearUploadLog() }) { Text("Leeren") } },
+                dismissButton = { TextButton(onClick = { askClear = false }) { Text("Abbrechen") } },
+            )
         }
     }
     vm.davPendingPin?.let { fp ->

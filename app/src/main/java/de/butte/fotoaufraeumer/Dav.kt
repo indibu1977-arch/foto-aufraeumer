@@ -169,6 +169,24 @@ object Dav {
         }
     }
 
+    /** Größe einer Datei auf der Platte, null wenn es sie nicht gibt. */
+    fun remoteSize(c: DavCfg, path: String): Long? {
+        val body = """<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:getcontentlength/></d:prop></d:propfind>"""
+        val r = req(c, path).header("Depth", "0").method("PROPFIND", body.toRequestBody(XML)).build()
+        client(c.pin).newCall(r).execute().use { resp ->
+            if (resp.code == 404) return null
+            if (resp.code != 207) fail(resp.code, "Prüfen")
+            val p = XmlPullParserFactory.newInstance().apply { isNamespaceAware = true }.newPullParser()
+            p.setInput(resp.body!!.byteStream(), "UTF-8")
+            var ev = p.eventType
+            while (ev != XmlPullParser.END_DOCUMENT) {
+                if (ev == XmlPullParser.START_TAG && p.name == "getcontentlength") return p.nextText().trim().toLongOrNull() ?: -1L
+                ev = p.next()
+            }
+            return -1L
+        }
+    }
+
     /** Lädt ein Foto hoch, ohne Vorhandenes zu überschreiben. Gibt den verwendeten Dateinamen zurück. */
     fun upload(ctx: Context, c: DavCfg, folder: String, name: String, uri: Uri, size: Long): String {
         val dot = name.lastIndexOf('.')

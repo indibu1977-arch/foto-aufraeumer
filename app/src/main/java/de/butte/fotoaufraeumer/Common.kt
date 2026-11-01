@@ -50,6 +50,7 @@ fun Thumb(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     cloud: Boolean = false,
+    uploaded: Boolean = false,
 ) {
     Box(
         modifier
@@ -79,6 +80,19 @@ fun Thumb(
                 color = Color.White,
                 fontSize = 34.sp,
                 modifier = Modifier.align(Alignment.Center),
+            )
+        }
+        if (uploaded) {
+            Text(
+                "☁✓",
+                color = Color.White,
+                fontSize = 11.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(3.dp)
+                    .background(Color(0xDD2E7D32), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 4.dp, vertical = 1.dp),
             )
         }
         if (label != null) {
@@ -165,4 +179,24 @@ fun LevelChips(current: Int, labels: List<String>, title: String, onSelect: (Int
             FilterChip(selected = current == i, onClick = { onSelect(i) }, label = { Text(l) })
         }
     }
+}
+
+/** Grünes Schild „schon auf der Platte“ oben links im großen Bild. */
+@Composable
+fun BoxScope.UploadedBadge(info: Uploaded?) {
+    if (info == null) return
+    val dir = info.folder.trim('/').substringAfterLast('/').ifEmpty { "Platte" }
+    Text(
+        "☁✓ $dir" + (if (info.time > 0) " · ${dateStr(info.time)}" else ""),
+        color = Color.White,
+        fontSize = 12.sp,
+        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .align(Alignment.TopStart)
+            .padding(8.dp)
+            .background(Color(0xDD2E7D32), RoundedCornerShape(8.dp))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    )
 }

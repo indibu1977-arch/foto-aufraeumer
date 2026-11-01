@@ -152,6 +152,48 @@ class AppVM(app: Application) : AndroidViewModel(app) {
         davDeleteAfter = v
     }
 
+    // ---------- Schon hochgeladen ----------
+    var uploads by mutableStateOf(UploadLog.load(app))
+        private set
+    var hideUploaded by mutableStateOf(sp.getBoolean("hide_uploaded", true))
+        private set
+
+    fun uploadedInfo(p: Photo): Uploaded? = uploads[UploadLog.key(p)]
+
+    fun updateHideUploaded(v: Boolean) {
+        sp.edit().putBoolean("hide_uploaded", v).apply()
+        hideUploaded = v
+    }
+
+    private suspend fun markUploaded(p: Photo, folder: String, remoteName: String) {
+        uploads = uploads + (UploadLog.key(p) to Uploaded(folder, remoteName, System.currentTimeMillis()))
+        val snap = uploads
+        withContext(Dispatchers.IO) { UploadLog.save(ctx, snap) }
+    }
+
+    /** Fotos, die schon auf der Platte liegen, aber noch auf dem Handy sind. */
+    val uploadedOnPhone: List<Photo> get() = photos.filter { UploadLog.key(it) in uploads }
+
+    /** Hochgeladene Fotos jetzt vom Handy entfernen (Papierkorb, 30 Tage). */
+    fun trashUploaded() {
+        val list = uploadedOnPhone
+        if (list.isEmpty()) { message = "Keine hochgeladenen Fotos mehr auf dem Handy"; return }
+        viewModelScope.launch {
+            val ok = try { ask(MediaRepo.trashRequest(ctx, list.map { it.uri })) } catch (e: Exception) { false }
+            if (ok) {
+                removeIds(list.map { it.id }.toSet())
+                photos = withContext(Dispatchers.IO) { MediaRepo.loadAll(ctx) }
+                message = "${list.size} hochgeladene Fotos in den Papierkorb gelegt"
+            }
+        }
+    }
+
+    /** Upload-Liste leeren (Markierungen verschwinden, Dateien bleiben). */
+    fun clearUploadLog() {
+        uploads = emptyMap()
+        viewModelScope.launch { withContext(Dispatchers.IO) { UploadLog.save(ctx, emptyMap()) } }
+    }
+
     /** Zugangsdaten speichern und Verbindung prüfen. Bei neuem Zertifikat erst Rückfrage. */
     fun connectDav(url: String, user: String, pass: String) {
         viewModelScope.launch {
@@ -507,7 +549,10 @@ class AppVM(app: Application) : AndroidViewModel(app) {
 
     private fun buildSwipeList() {
         val src = swipeSource
-        swipeList = photos.filter { (src == null || it.relPath == src) && it.id !in seen }
+        val up = if (hideUploaded) uploads else emptyMap()
+        swipeList = photos.filter {
+            (src == null || it.relPath == src) && it.id !in seen && UploadLog.key(it) !in up
+        }
         swipeIndex = 0
     }
 
@@ -613,6 +658,7 @@ class AppVM(app: Application) : AndroidViewModel(app) {
             }
             // Direkt auf die Platte (Nextcloud/WebDAV) hochladen
             var onDisk = 0
+            var skipped = 0
             var davErr: String? = null
             if (davItems.isNotEmpty()) {
                 val cfg = dav
@@ -622,7 +668,19 @@ class AppVM(app: Application) : AndroidViewModel(app) {
                     val (p, folder) = pair
                     uploadProgress = "Lade hoch ${i + 1}/${davItems.size} → ${folder.trim('/')}"
                     try {
-                        withContext(Dispatchers.IO) { Dav.upload(ctx, cfg, folder, p.name, p.uri, p.size) }
+                        val f = folder.trimEnd('/')
+                        val known = uploadedInfo(p)
+                        // Schon dort? Gleich große Datei (Name aus der Liste oder Originalname) auf der Platte
+                        val sameFolder = known != null && known.folder.trimEnd('/') == f && known.remoteName.isNotEmpty()
+                        val rName = if (sameFolder) known!!.remoteName else p.name
+                        val already = withContext(Dispatchers.IO) { Dav.remoteSize(cfg, "$f/$rName") } == p.size
+                        if (already) {
+                            skipped++
+                            if (!sameFolder) markUploaded(p, f, rName)
+                        } else {
+                            val n = withContext(Dispatchers.IO) { Dav.upload(ctx, cfg, folder, p.name, p.uri, p.size) }
+                            markUploaded(p, f, n)
+                        }
                         done += p
                     } catch (e: Exception) {
                         lastErr = e.message
@@ -653,6 +711,7 @@ class AppVM(app: Application) : AndroidViewModel(app) {
                 if (hidden > 0) append(", $hidden privat")
                 if (uploaded > 0) append(", $uploaded an Nextcloud")
                 if (onDisk > 0) append(", $onDisk auf die Platte")
+                if (skipped > 0) append(" ($skipped waren schon dort)")
                 if (davErr != null) append(" – Hochladen: $davErr")
                 if (failed > 0) append(", $failed fehlgeschlagen")
                 if (notDone.isNotEmpty()) append(", ${notDone.size} abgebrochen")

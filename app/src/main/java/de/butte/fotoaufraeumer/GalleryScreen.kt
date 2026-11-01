@@ -296,6 +296,7 @@ private fun GalleryGrid(
                     },
                     onLongClick = { if (upSet != null) onUpToggle(p.id) else vm.toggleMark(p.id) },
                     cloud = upSet != null && p.id in upSet,
+                    uploaded = vm.uploadedInfo(p) != null,
                 )
             }
         }
@@ -346,6 +347,7 @@ private fun GalleryPager(
                         GalleryCard(
                             p = p,
                             marked = p.id in markSet,
+                            uploaded = vm.uploadedInfo(p),
                             modifier = Modifier.weight(1f).fillMaxWidth(),
                             onMark = {
                                 vm.mark(p.id)
@@ -374,6 +376,7 @@ private fun GalleryPager(
 private fun GalleryCard(
     p: Photo,
     marked: Boolean,
+    uploaded: Uploaded?,
     modifier: Modifier,
     onMark: () -> Unit,
     onUnmark: () -> Unit,
@@ -427,6 +430,7 @@ private fun GalleryCard(
                 .background(Color(0x88000000), RoundedCornerShape(topEnd = 8.dp))
                 .padding(horizontal = 6.dp, vertical = 2.dp),
         )
+        UploadedBadge(uploaded)
         if (marked) {
             Text(
                 "🗑 Zum Löschen markiert",
@@ -664,6 +668,7 @@ fun SwipeJumpGrid(vm: AppVM, onPicked: () -> Unit) {
                             vm.jumpTo(i)
                             onPicked()
                         },
+                        uploaded = vm.uploadedInfo(p) != null,
                     )
                 }
             }
