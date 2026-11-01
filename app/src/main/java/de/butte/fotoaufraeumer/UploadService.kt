@@ -34,7 +34,8 @@ class UploadService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val n = build(this, intent?.getStringExtra("text") ?: "Lade hoch …", 0, 0, ongoing = true)
+        val n = build(this, intent?.getStringExtra("text") ?: "Lade hoch …", 0, 0, ongoing = true,
+            title = intent?.getStringExtra("title") ?: TITLE_UP)
         startForeground(ID_RUN, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         if (wake == null) {
             wake = (getSystemService(POWER_SERVICE) as PowerManager)
@@ -75,11 +76,14 @@ class UploadService : Service() {
             return PendingIntent.getActivity(ctx, 0, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         }
 
-        private fun build(ctx: Context, text: String, i: Int, n: Int, ongoing: Boolean): Notification {
+        const val TITLE_UP = "Foto-Aufräumer lädt hoch"
+        const val TITLE_DOWN = "Foto-Aufräumer lädt herunter"
+
+        private fun build(ctx: Context, text: String, i: Int, n: Int, ongoing: Boolean, title: String = TITLE_UP): Notification {
             channel(ctx)
             return Notification.Builder(ctx, CH)
                 .setSmallIcon(if (ongoing) android.R.drawable.stat_sys_upload else android.R.drawable.stat_sys_upload_done)
-                .setContentTitle(if (ongoing) "Foto-Aufräumer lädt hoch" else "Foto-Aufräumer")
+                .setContentTitle(if (ongoing) title else "Foto-Aufräumer")
                 .setContentText(text)
                 .setStyle(Notification.BigTextStyle().bigText(text))
                 .setOngoing(ongoing)
@@ -90,18 +94,18 @@ class UploadService : Service() {
                 .build()
         }
 
-        fun start(ctx: Context, text: String) {
+        fun start(ctx: Context, text: String, title: String = TITLE_UP) {
             ctx.getSystemService(NotificationManager::class.java).cancel(ID_DONE)
             try {
-                ctx.startForegroundService(Intent(ctx, UploadService::class.java).putExtra("text", text))
+                ctx.startForegroundService(Intent(ctx, UploadService::class.java).putExtra("text", text).putExtra("title", title))
             } catch (_: Exception) {
                 // Start nur aus dem Vordergrund erlaubt – dann eben ohne Dienst weiter
             }
         }
 
-        fun progress(ctx: Context, text: String, i: Int, n: Int) {
+        fun progress(ctx: Context, text: String, i: Int, n: Int, title: String = TITLE_UP) {
             try {
-                ctx.getSystemService(NotificationManager::class.java).notify(ID_RUN, build(ctx, text, i, n, ongoing = true))
+                ctx.getSystemService(NotificationManager::class.java).notify(ID_RUN, build(ctx, text, i, n, ongoing = true, title = title))
             } catch (_: Exception) {}
         }
 

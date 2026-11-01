@@ -93,6 +93,9 @@ fun HomeScreen(vm: AppVM) {
             BigCard("🆚  Fotos vergleichen", "Gleiche & ähnliche suchen, Bearbeitete ($edited) oder zwei beliebige Fotos – mit Schieber und Qualitätswerten") {
                 vm.go(Screen.Edited)
             }
+            BigCard("💾  Platte (Home Assistant)", "Dateien hoch- und runterladen, Fotos ansehen, Videos & Musik streamen – zuhause und unterwegs") {
+                vm.go(Screen.Platte)
+            }
             BigCard("🔒  Privater Ordner", "Fotos, die nur du in dieser App siehst – mit PIN geschützt") {
                 vm.go(Screen.Vault)
             }
@@ -818,6 +821,7 @@ fun DavSettings(vm: AppVM) {
     var url by remember { mutableStateOf(vm.dav.url) }
     var user by remember { mutableStateOf(vm.dav.user) }
     var pass by remember { mutableStateOf(vm.dav.pass) }
+    var remote by remember { mutableStateOf(vm.dav.remote) }
     var show by remember { mutableStateOf(false) }
     Column(Modifier.padding(horizontal = 16.dp)) {
         Text("Direkt auf die Platte (Nextcloud)", style = MaterialTheme.typography.titleMedium)
@@ -828,7 +832,15 @@ fun DavSettings(vm: AppVM) {
             style = MaterialTheme.typography.bodySmall,
         )
         Spacer(Modifier.height(8.dp))
-        OutlinedTextField(url, { url = it }, label = { Text("Server") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(url, { url = it }, label = { Text("Server zuhause (WLAN)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(
+            remote, { remote = it },
+            label = { Text("Server unterwegs (Tailscale)") },
+            placeholder = { Text("https://homeassistant.taileb4fed.ts.net:8099") },
+            supportingText = { Text("Wird automatisch genommen, wenn zuhause nicht erreichbar. Tailscale-App muss an sein.") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
         OutlinedTextField(user, { user = it }, label = { Text("Benutzername") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(
             pass, { pass = it },
@@ -843,7 +855,7 @@ fun DavSettings(vm: AppVM) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Button(
                 enabled = !vm.davBusy && url.isNotBlank() && user.isNotBlank() && pass.isNotBlank(),
-                onClick = { vm.connectDav(url, user, pass) },
+                onClick = { vm.connectDav(url, user, pass, remote) },
             ) { Text("Speichern & verbinden") }
             if (vm.davBusy) {
                 Spacer(Modifier.width(12.dp))

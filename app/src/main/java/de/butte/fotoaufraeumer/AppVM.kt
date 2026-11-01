@@ -41,6 +41,9 @@ sealed interface Screen {
     data class Compare(val before: Photo, val after: Photo, val free: Boolean = false) : Screen
     data object PickCompare : Screen
     data object Gallery : Screen
+    data object Platte : Screen
+    data class PlattePlay(val entry: DavEntry) : Screen
+    data class PlatteView(val folder: List<DavEntry>, val start: Int) : Screen
     data object FindSame : Screen
     data object Camera : Screen
     data class SimilarTo(val photo: Photo) : Screen
@@ -74,7 +77,7 @@ class AppVM(app: Application) : AndroidViewModel(app) {
     var intentReq by mutableStateOf<IntentReq?>(null)
         private set
 
-    private suspend fun ask(pi: PendingIntent): Boolean {
+    internal suspend fun ask(pi: PendingIntent): Boolean {
         val d = CompletableDeferred<Boolean>()
         intentReq = IntentReq(pi.intentSender, d)
         return d.await()
@@ -195,14 +198,15 @@ class AppVM(app: Application) : AndroidViewModel(app) {
     }
 
     /** Zugangsdaten speichern und Verbindung prüfen. Bei neuem Zertifikat erst Rückfrage. */
-    fun connectDav(url: String, user: String, pass: String) {
+    fun connectDav(url: String, user: String, pass: String, remote: String = dav.remote) {
         viewModelScope.launch {
             davBusy = true
             davStatus = "Verbinde …"
             try {
                 val fp = withContext(Dispatchers.IO) { Dav.fetchFingerprint(url) }
                 val keep = if (fp != null && fp == dav.pin) fp else null
-                dav = DavCfg(url.trim().trimEnd('/'), user.trim(), pass.trim(), keep)
+                dav = dav.copy(url = url.trim().trimEnd('/'), user = user.trim(), pass = pass.trim(), pin = keep, remote = remote.trim().trimEnd('/'))
+                Dav.resetBase()
                 Dav.save(ctx, dav)
                 if (fp != null && keep == null) {
                     davPendingPin = fp
@@ -284,7 +288,10 @@ class AppVM(app: Application) : AndroidViewModel(app) {
     }
 
     var uploadProgress by mutableStateOf<String?>(null)
-        private set
+        internal set
+
+    // ---------- Platten-Browser ----------
+    val platte = PlatteState(this)
 
     fun dirLabel(d: Dir): String = when {
         d == Dir.DOWN -> "${d.arrow} Löschen"
@@ -625,6 +632,7 @@ class AppVM(app: Application) : AndroidViewModel(app) {
                 return block()
             } catch (e: java.io.IOException) {
                 if (attempt == 6 || e is javax.net.ssl.SSLHandshakeException) throw e
+                Dav.resetBase() // evtl. WLAN verlassen → beim nächsten Versuch Tailscale nehmen
                 uploadProgress = "$label\nVerbindung weg – neuer Versuch in ${wait / 1000} s"
                 delay(wait)
                 wait = minOf(wait * 2, 60_000L)
