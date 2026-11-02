@@ -360,8 +360,61 @@ object Dav {
             .build()
         http(c).newCall(r).execute().use { resp ->
             if (resp.code == 412) throw DavException("„${to.substringAfterLast('/')}“ gibt es dort schon")
-            if (resp.code != 201 && resp.code != 204) fail(resp.code, "Verschieben")
+            if (resp.code != 201 && resp.code != 204) {
+                val msg = try { Regex("<s:message>(.*?)</s:message>").find(resp.body?.string() ?: "")?.groupValues?.get(1) } catch (_: Exception) { null }
+                throw DavException("Verschieben: Fehler ${resp.code}" + (msg?.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""))
+            }
         }
+    }
+
+    /**
+     * Ordner/Datei verschieben – auch zwischen SD-Karte und Festplatte.
+     * Klappt MOVE nicht (Nextcloud lehnt z. B. Ordner über Speichergrenzen ab), wird Datei für Datei
+     * verschoben bzw. über das Handy kopiert und das Original danach gelöscht.
+     */
+    fun moveTree(c: DavCfg, from: String, to: String, tmp: java.io.File, onFile: (String) -> Unit = {}): Int {
+        try { move(c, from, to); return 1 } catch (e: DavException) {
+            if (e.message?.contains("gibt es dort schon") == true && !isDir(c, from)) throw e
+        }
+        if (!isDir(c, from)) { copyFile(c, from, to, tmp); delete(c, from); onFile(from); return 1 }
+        mkdir(c, to)
+        var n = 0
+        for (e in list(c, from)) {
+            val dst = to.trimEnd('/') + "/" + e.name
+            if (e.isDir) n += moveTree(c, e.path, dst, tmp, onFile)
+            else {
+                if (remoteSize(c, dst) == e.size) { delete(c, e.path); n++; onFile(e.name); continue } // schon dort
+                try { move(c, e.path, dst) } catch (_: DavException) { copyFile(c, e.path, dst, tmp); delete(c, e.path) }
+                n++
+                onFile(e.name)
+            }
+        }
+        if (list(c, from).isEmpty()) delete(c, from)
+        return n
+    }
+
+    private fun isDir(c: DavCfg, path: String): Boolean = try {
+        val r = req(c, path).header("Depth", "0").method("PROPFIND",
+            """<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>""".toRequestBody(XML)).build()
+        http(c).newCall(r).execute().use { it.code == 207 && (it.body?.string() ?: "").contains("collection") }
+    } catch (_: Exception) { false }
+
+    /** Datei über das Handy kopieren (herunterladen in den Cache, wieder hochladen, Größe prüfen). */
+    private fun copyFile(c: DavCfg, from: String, to: String, tmp: java.io.File) {
+        val f = java.io.File(tmp, "mv_" + System.nanoTime())
+        try {
+            f.outputStream().use { download(c, from, it) }
+            val body = object : RequestBody() {
+                override fun contentType() = "application/octet-stream".toMediaType()
+                override fun contentLength() = f.length()
+                override fun writeTo(sink: BufferedSink) { f.inputStream().source().use { sink.writeAll(it) } }
+            }
+            val r = req(c, to).put(body).build()
+            http(c).newCall(r).execute().use { resp ->
+                if (resp.code != 201 && resp.code != 204) fail(resp.code, "Kopieren")
+            }
+            if (remoteSize(c, to) != f.length()) throw DavException("Kopieren: Größe stimmt nicht – Original bleibt")
+        } finally { f.delete() }
     }
 
     fun delete(c: DavCfg, path: String) {

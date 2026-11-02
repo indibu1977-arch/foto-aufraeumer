@@ -326,7 +326,11 @@ class PlatteState(private val vm: AppVM) {
                 val name = p.trimEnd('/').substringAfterLast('/')
                 val to = home.trimEnd('/') + "/" + name
                 try {
-                    withContext(Dispatchers.IO) { Dav.move(cfg, p, to) }
+                    var files = 0
+                    vm.message = "Verschiebe „$name“ …"
+                    withContext(Dispatchers.IO) {
+                        Dav.moveTree(cfg, p, to, ctx.cacheDir) { f -> files++; vm.message = "„$name“: $files verschoben – $f" }
+                    }
                     vm.retarget(p, to)
                     ok++
                 } catch (e: Exception) { err = e.message }
