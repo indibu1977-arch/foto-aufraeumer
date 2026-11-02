@@ -300,14 +300,40 @@ class PlatteState(private val vm: AppVM) {
         val n = name.trim().replace("/", "")
         if (n.isEmpty()) return
         val cfg = vm.dav
-        val p = path.trimEnd('/') + "/" + n
+        val parent = vm.safeParent(path)
+        val p = parent.trimEnd('/') + "/" + n
         appScope.launch {
             try {
                 withContext(Dispatchers.IO) { Dav.mkdir(cfg, p) }
+                if (parent != path) vm.message = "„$n“ in „${parent.trim('/')}“ angelegt (Hauptordner = SD-Karte)"
                 reload()
             } catch (e: Exception) {
                 vm.message = "Ordner anlegen: ${e.message}"
             }
+        }
+    }
+
+    /** Ausgewählte Einträge aus dem Hauptordner (SD-Karte) in den eigenen Platten-Ordner verschieben. */
+    fun moveSelectedHome() {
+        val home = vm.homeFolder
+        val paths = selected.filter { it.trimEnd('/') != home && !home.startsWith(it.trimEnd('/') + "/") }
+        if (paths.isEmpty()) return
+        val cfg = vm.dav
+        appScope.launch {
+            var ok = 0
+            var err: String? = null
+            for (p in paths) {
+                val name = p.trimEnd('/').substringAfterLast('/')
+                val to = home.trimEnd('/') + "/" + name
+                try {
+                    withContext(Dispatchers.IO) { Dav.move(cfg, p, to) }
+                    vm.retarget(p, to)
+                    ok++
+                } catch (e: Exception) { err = e.message }
+            }
+            selected.clear()
+            vm.message = "$ok nach „${home.trim('/')}“ verschoben" + (err?.let { " – $it" } ?: "")
+            reload()
         }
     }
 
@@ -424,6 +450,11 @@ fun PlatteScreen(vm: AppVM) {
                             onClick = { st.download(st.entries.filter { it.path in st.selected }) },
                             modifier = Modifier.weight(1f),
                         ) { Text("⬇ Aufs Handy", maxLines = 1) }
+                        if (st.isRoot && st.selected.none { it.trimEnd('/') == vm.homeFolder }) {
+                            FilledTonalButton(onClick = { st.moveSelectedHome() }, modifier = Modifier.weight(1f)) {
+                                Text("→ In ${vm.homeFolder.trim('/')}", maxLines = 1)
+                            }
+                        }
                         OutlinedButton(onClick = { askDelete = true }, modifier = Modifier.weight(1f)) {
                             Text("🗑 Löschen", maxLines = 1)
                         }
@@ -590,7 +621,7 @@ fun PlatteScreen(vm: AppVM) {
         var name by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { askFolder = false },
-            title = { Text("Neuer Ordner in „${st.folderName}“") },
+            title = { Text("Neuer Ordner in „${if (st.isRoot) vm.homeFolder.trim('/') else st.folderName}“") },
             text = { OutlinedTextField(name, { name = it }, singleLine = true, label = { Text("Name") }) },
             confirmButton = {
                 TextButton(enabled = name.isNotBlank(), onClick = { askFolder = false; st.mkdir(name) }) { Text("Anlegen") }

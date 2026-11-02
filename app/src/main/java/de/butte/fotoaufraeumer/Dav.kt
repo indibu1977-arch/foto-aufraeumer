@@ -352,6 +352,18 @@ object Dav {
         }
     }
 
+    /** Datei/Ordner auf der Platte verschieben (gleicher Server). */
+    fun move(c: DavCfg, from: String, to: String) {
+        val r = req(c, from).method("MOVE", null)
+            .header("Destination", url(c, to))
+            .header("Overwrite", "F")
+            .build()
+        http(c).newCall(r).execute().use { resp ->
+            if (resp.code == 412) throw DavException("„${to.substringAfterLast('/')}“ gibt es dort schon")
+            if (resp.code != 201 && resp.code != 204) fail(resp.code, "Verschieben")
+        }
+    }
+
     fun delete(c: DavCfg, path: String) {
         val r = req(c, path).delete().build()
         http(c).newCall(r).execute().use { resp ->

@@ -935,7 +935,7 @@ fun DavSettings(vm: AppVM) {
 @Composable
 fun DavFolderDialog(vm: AppVM, onPick: (String) -> Unit, onDismiss: () -> Unit) {
     var newName by remember { mutableStateOf("") }
-    LaunchedEffect(Unit) { if (vm.dav.ok) vm.davOpen("/") }
+    LaunchedEffect(Unit) { if (vm.dav.ok) vm.davOpen(vm.homeFolder) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Ordner auf der Platte") },
@@ -971,7 +971,7 @@ fun DavFolderDialog(vm: AppVM, onPick: (String) -> Unit, onDismiss: () -> Unit) 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
                         newName, { newName = it.replace("/", "") },
-                        label = { Text("Neuer Ordner hier") },
+                        label = { Text(if (vm.davPath.trim('/').isEmpty()) "Neuer Ordner (in ${vm.homeFolder.trim('/')})" else "Neuer Ordner hier") },
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                     )

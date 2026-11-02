@@ -270,10 +270,27 @@ class AppVM(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Eigener Ordner auf der Festplatte („/Dirk“ bzw. „/Ines“). Hauptordner „/“ = SD-Karte des Pi. */
+    val homeFolder: String get() = if (owner == Owner.INES) "/Ines" else "/Dirk"
+
+    /** Neue Ordner nie im Hauptordner (SD-Karte) anlegen, sondern im eigenen Platten-Ordner. */
+    fun safeParent(parent: String): String =
+        if (parent.trim('/').isEmpty()) homeFolder else parent
+
+    /** Nach dem Verschieben auf der Platte: Wischrichtungen, die auf den alten Ort zeigen, mitziehen. */
+    fun retarget(from: String, to: String) {
+        val f = from.trimEnd('/')
+        for ((d, t) in targets) {
+            if (t == null || !isDavTarget(t)) continue
+            val p = davPath(t).trimEnd('/')
+            if (p == f || p.startsWith("$f/")) setTarget(d, DAV_PREFIX + to.trimEnd('/') + p.removePrefix(f))
+        }
+    }
+
     fun davCreate(name: String) {
         val n = name.trim().replace("/", "")
         if (n.isEmpty()) return
-        val p = davPath.trimEnd('/') + "/" + n
+        val p = safeParent(davPath).trimEnd('/') + "/" + n
         viewModelScope.launch {
             davBusy = true
             try {
