@@ -188,6 +188,7 @@ object Dav {
         when (code) {
             401 -> "Anmeldung abgelehnt – Benutzer oder App-Passwort prüfen"
             404 -> "$what: Ordner nicht gefunden"
+            409 -> "$what: Zielordner auf der Platte nicht erreichbar (409) – in Nextcloud unter Externer Speicher prüfen, ob der Ordner grün ist"
             507 -> "Platte voll"
             else -> "$what: Fehler $code"
         }
@@ -360,6 +361,7 @@ object Dav {
             .build()
         http(c).newCall(r).execute().use { resp ->
             if (resp.code == 412) throw DavException("„${to.substringAfterLast('/')}“ gibt es dort schon")
+            if (resp.code == 409 && !isDir(c, to.trimEnd('/').substringBeforeLast('/', "/"))) fail(409, "Verschieben")
             if (resp.code != 201 && resp.code != 204) {
                 val msg = try { Regex("<s:message>(.*?)</s:message>").find(resp.body?.string() ?: "")?.groupValues?.get(1) } catch (_: Exception) { null }
                 throw DavException("Verschieben: Fehler ${resp.code}" + (msg?.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""))
