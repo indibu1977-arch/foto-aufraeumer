@@ -167,11 +167,43 @@ object Dav {
     fun lastBase(c: DavCfg): String = chosen ?: c.url.trim().trimEnd('/')
 
     private fun davUrl(base: String, c: DavCfg, path: String): String {
-        val segs = path.split('/').filter { it.isNotEmpty() }.joinToString("/") { enc(it) }
+        val parts = path.split('/').filter { it.isNotEmpty() }.toMutableList()
+        // Hauptordner wie „Dirk“ heißen in Nextcloud evtl. „Dirk “ (Leerzeichen) – echten Namen nehmen
+        if (parts.isNotEmpty()) rootAlias[parts[0].trim()]?.let { parts[0] = it }
+        val segs = parts.joinToString("/") { enc(it) }
         return base + "/remote.php/dav/files/" + enc(c.user) + "/" + segs
     }
 
-    private fun url(c: DavCfg, path: String): String = davUrl(base(c), c, path)
+    /** Getrimmter Name → echter Name der Ordner im Hauptordner. */
+    private val rootAlias = java.util.concurrent.ConcurrentHashMap<String, String>()
+    @Volatile private var aliasAt = 0L
+
+    private fun refreshAlias(c: DavCfg, base: String) {
+        val now = System.currentTimeMillis()
+        if (now - aliasAt < 300_000) return
+        aliasAt = now
+        try {
+            val body = """<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>"""
+            val r = Request.Builder().url(base + "/remote.php/dav/files/" + enc(c.user) + "/")
+                .header("Authorization", auth(c)).header("Depth", "1")
+                .method("PROPFIND", body.toRequestBody(XML)).build()
+            http(c).newCall(r).execute().use { resp ->
+                if (resp.code != 207) return
+                for (h in parseFolders(resp.body!!.byteStream())) {
+                    val name = URLDecoder.decode(h.replace("+", "%2B"), "UTF-8").trimEnd('/')
+                        .substringAfter("/remote.php/dav/files/").substringAfter('/', "")
+                    if (name.isEmpty() || name.contains('/')) continue
+                    if (name != name.trim()) rootAlias[name.trim()] = name
+                }
+            }
+        } catch (_: Exception) { aliasAt = 0 }
+    }
+
+    private fun url(c: DavCfg, path: String): String {
+        val b = base(c)
+        refreshAlias(c, b)
+        return davUrl(b, c, path)
+    }
 
     /** Datei-Adresse fürs Streamen (Adresse vorher mit [base] bestimmen). */
     fun fileUrl(c: DavCfg, path: String): String = davUrl(lastBase(c), c, path)

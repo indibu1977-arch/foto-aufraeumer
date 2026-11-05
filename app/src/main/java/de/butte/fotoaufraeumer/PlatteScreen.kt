@@ -316,7 +316,7 @@ class PlatteState(private val vm: AppVM) {
     /** Ausgewählte Einträge aus dem Hauptordner (SD-Karte) in den eigenen Platten-Ordner verschieben. */
     fun moveSelectedHome() {
         val home = vm.homeFolder
-        val paths = selected.filter { it.trimEnd('/') != home && !home.startsWith(it.trimEnd('/') + "/") }
+        val paths = selected.filter { val t = it.trimEnd('/').trim(); t != home && !home.startsWith("$t/") }
         if (paths.isEmpty()) return
         val cfg = vm.dav
         appScope.launch {
@@ -454,7 +454,7 @@ fun PlatteScreen(vm: AppVM) {
                             onClick = { st.download(st.entries.filter { it.path in st.selected }) },
                             modifier = Modifier.weight(1f),
                         ) { Text("⬇ Aufs Handy", maxLines = 1) }
-                        if (st.isRoot && st.selected.none { it.trimEnd('/') == vm.homeFolder }) {
+                        if (st.isRoot && st.selected.none { it.trimEnd('/').trim() == vm.homeFolder }) {
                             FilledTonalButton(onClick = { st.moveSelectedHome() }, modifier = Modifier.weight(1f)) {
                                 Text("→ In ${vm.homeFolder.trim('/')}", maxLines = 1)
                             }
